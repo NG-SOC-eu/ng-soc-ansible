@@ -73,7 +73,7 @@
     source: pull
     
 - name: Run Metasploitable2 container
-  community.docker.docker_container:
+  community.docker.docker_image:
     name: metasploitable2
     image: cyberacademylabs/metasploitable2
     networks:
