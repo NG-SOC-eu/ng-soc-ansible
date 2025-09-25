@@ -64,9 +64,9 @@
 
 - name: Create Docker network
   community.docker.docker_network:
-    name: "macvlan_lab"
+    name: macvlan_lab
     driver: macvlan
-    driver_option: 
+    driver_options: 
       parent: eth0
     ipam_options:
       subnet: 10.0.16.0/24
