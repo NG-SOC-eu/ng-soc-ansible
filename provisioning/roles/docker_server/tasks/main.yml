@@ -67,7 +67,7 @@
     name: macvlan_lab
     driver: macvlan
     driver_options: 
-      parent: eth0
+      parent: ens4
     ipam_config:
       - subnet: 10.0.16.0/24
         gateway: 10.0.16.1
