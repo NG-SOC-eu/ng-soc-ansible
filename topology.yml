@@ -1,4 +1,4 @@
-name: PenTest
+name: pentest
 hosts:
   - name: kali
     base_box:
@@ -17,18 +17,18 @@ routers:
       mgmt_user: debian
     flavor: standard.small
 networks:
-  - name: pentestnet
+  - name: pentest-net
     cidr: 10.0.16.0/24
     accessible_by_user: true
 net_mappings:
   - host: kali
-    network: pentestnet
+    network: pentest-net
     ip: 10.0.16.50
   - host: docker-server
-    network: pentestnet
+    network: pentest-net
     ip: 10.0.16.60
 router_mappings: 
   - router: router
-    network: pentestnet
+    network: pentest-net
     ip: 10.0.16.1
 groups: []
