@@ -27,6 +27,7 @@
       - cifs-utils
       - unzip
       - rsync
+      - redis
     state: present
     update_cache: yes
 
