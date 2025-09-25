@@ -67,17 +67,22 @@
     name: "pentest-lab"
     state: present
 
-- name: Download Metasploitable2 docker
-  community.docker.docker_compose_v2:
-    name: "cyberacademylabs/metasploitable2"
-    source: pull
-    
+- name: Pull Metasploitable image
+  community.docker.docker_image:
+    name: metasploitable2
+    image: cyberacademylabs/metasploitable2
+    network:
+      -name: 
+    state: started
+    restart_policy: unless-stopped
+
+
 - name: Run Metasploitable2 container
   community.docker.docker_image:
     name: metasploitable2
     image: cyberacademylabs/metasploitable2
-    networks:
-      - name: "{{ network_name }}"
+#    networks:
+#      - name: pentest-lab
     state: started
     restart_policy: unless-stopped
 
