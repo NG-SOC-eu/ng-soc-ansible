@@ -1,0 +1,34 @@
+name: PenTest
+hosts:
+  - name: kali
+    base_box:
+      image: kali
+      mgmt_user: debian
+    flavor: standard.medium
+  - name: docker-server
+    base_box:
+      image: ubuntu-noble-x86_64
+      mgmt_user: ubuntu
+    flavor: standard.medium
+routers: 
+  - name: router
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+    flavor: standard.small
+networks:
+  - name: pentest-net
+    cidr: 10.0.16.0/24
+    accessible_by_user: true
+net_mappings:
+  - host: kali
+    network: pentest-net
+    ip: 10.0.16.50
+  - host: docker-server
+    network: pentest-net
+    ip: 10.0.16.60
+router_mappings: 
+  - router: router
+    network: pentest-net
+    ip: 10.0.16.1
+groups: []
