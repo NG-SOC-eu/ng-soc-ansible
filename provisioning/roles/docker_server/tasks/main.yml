@@ -67,9 +67,13 @@
     name: "pentest-lab"
     state: present
 
+- name: Pull Metasploitable2 image
+  community.docker.docker_image:
+    name: cyberacademylabs/metasploitable2
+    source: pull
 
 - name: Run Metasploitable2 container
-  community.docker.docker_image:
+  community.docker.docker_container:
     name: metasploitable2
     image: cyberacademylabs/metasploitable2
 #    networks:
