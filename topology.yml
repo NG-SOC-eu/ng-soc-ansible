@@ -1,4 +1,4 @@
-name: pentest
+name: testing-pentest
 hosts:
   - name: kali
     base_box:
