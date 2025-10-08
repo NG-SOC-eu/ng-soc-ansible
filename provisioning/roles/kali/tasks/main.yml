@@ -184,7 +184,7 @@
 - name: Change OpenVAS admin password
   command: sudo -u _gvm gvmd --user=admin --new-password=admin
 
-- name: Update OpenVAS (greenbone-feed-sync)
+- name: Install OpenVAS (gvm-setup)
   command: greenbone-feed-sync
   register: gvm_feed_sync_output
   ignore_errors: yes
