@@ -1,19 +1,8 @@
----
 - name: Set password on User debian
   ansible.builtin.user:
     name: debian
     password: "$y$j9T$r1LaddN0V6MPqFmZl5U7C/$4xbYJL5zi/YFU85SL/gXz5UXs3JAXV5dU5CUvTN/WN9"
     update_password: always
-
-- name: Update apt repo
-  apt:
-    update_cache: yes
-    cache_valid_time: 3600
-
-- name: Update all packages
-  apt:
-    name: "*"
-    state: latest
     
 - name: Install packages
   apt:
@@ -38,6 +27,7 @@
       - unzip
       - rsync
       - redis
+      - postgresql
     state: present
     update_cache: yes
 
@@ -194,7 +184,7 @@
 - name: Change OpenVAS admin password
   command: sudo -u _gvm gvmd --user=admin --new-password=admin
 
-- name: Install OpenVAS (gvm-setup)
+- name: Update OpenVAS (greenbone-feed-sync)
   command: greenbone-feed-sync
   register: gvm_feed_sync_output
   ignore_errors: yes
@@ -225,11 +215,26 @@
   args:
     creates: /usr/share/metasploit-framework/config/database.yml
 
+- name: Ensure Python DB driver is installed (Debian/Ubuntu)
+  apt:
+    name: python3-psycopg2
+    state: present
+  become: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Ensure community.postgresql collection is available (run locally beforehand)
+  ansible.builtin.debug:
+    msg: "Make sure you ran: ansible-galaxy collection install community.postgresql"
+  changed_when: false
+
 - name: Ensure PostgreSQL user 'msf' exists with password
+  become: yes
+  become_user: postgres
   postgresql_user:
     name: msf
-    password: msfpassword
-    login_user: postgres
+    password: "msfpassword"
+    role_attr_flags: LOGIN
+    expires: infinity
     state: present
     
 - name: Create .msf4 directory
@@ -266,4 +271,4 @@
     mode: "0644"
 
 - name: Start msfrpcd for Metasploit RPC
-  command: msfrpcd -P "qwerty!23" -n -a 127.0.0.1 -p 55553
+  command: msfrpcd -P "msfpassword" -n -a 127.0.0.1 -p 55553
