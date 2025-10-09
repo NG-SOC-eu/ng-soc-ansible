@@ -113,6 +113,7 @@
   copy:
     src: "/opt/Scripts/{{ item }}"
     dest: "/usr/local/bin/{{ item | regex_replace('\\.py$', '') }}"
+    remote_src: true
     mode: "0755"
   loop:
     - nmap_auto.py
