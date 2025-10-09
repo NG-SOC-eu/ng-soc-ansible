@@ -317,6 +317,7 @@
 #  copy:
 #    src: "{{ ansible_env.HOME }}/.msf4/database.yml"
 #    dest: /usr/share/metasploit-framework/config/database.yml
+#    remote_src: true
 #    owner: root
 #    group: root
 #    mode: "0644"
