@@ -68,7 +68,7 @@
     install_recommends: yes
     update_cache: yes
 
-- name: Install apt Packages (libssl, goland, nodejs, npm, nano)
+- name: Install apt Packages (smbclient, cifs, unzip, rsync, redis, postgresql)
   apt: 
     name: 
       - smbclient
