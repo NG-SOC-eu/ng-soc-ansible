@@ -313,13 +313,13 @@
         production:
         <<: *pgsql
 
-- name: Copy database.yml to global Metasploit config
-  copy:
-    src: "{{ ansible_env.HOME }}/.msf4/database.yml"
-    dest: /usr/share/metasploit-framework/config/database.yml
-    owner: root
-    group: root
-    mode: "0644"
+#- name: Copy database.yml to global Metasploit config
+#  copy:
+#    src: "{{ ansible_env.HOME }}/.msf4/database.yml"
+#    dest: /usr/share/metasploit-framework/config/database.yml
+#    owner: root
+#    group: root
+#    mode: "0644"
 
 - name: Start msfrpcd for Metasploit RPC
   command: msfrpcd -P "msfpassword" -n -a 127.0.0.1 -p 55553
