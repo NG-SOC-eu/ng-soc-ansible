@@ -117,12 +117,13 @@
     mode: "0755"
   loop:
     - nmap_auto.py
-    - OpnMetaTest3.py
-    - OpnMetaTest5-new.py
-    - PenTest43.py
-    - PenTestCombined6.py
+#    - OpnMetaTest3.py
+#    - OpnMetaTest5-new.py
+#    - PenTest43.py
+#    - PenTestCombined6.py
     - XML2JSON.py
-    - FinalScript6.py
+#    - FinalScript6.py
+    - Automation_Pipeline.py
 
 - name: Git Clone Caldera
   git:
