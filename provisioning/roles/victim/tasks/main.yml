@@ -8,7 +8,8 @@
 - name: Set sequential hostname
   hostname:
 #    name: "victim{{ '%02d' | format(11 | random) }}"
-    name: "victim{{ global_sandbox_allocation_unit_id }}"
+#    name: "victim{{ global_sandbox_allocation_unit_id }}"
+    name: "victim{{ '%02d' | format(((global_sandbox_allocation_unit_id | int - 100) % 10)) }}"
 
 - name: Get current HostName
   command: hostname
