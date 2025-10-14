@@ -1,4 +1,4 @@
-name: testing-pentest
+name: testing-hostname
 hosts:
   - name: victim
     base_box:
