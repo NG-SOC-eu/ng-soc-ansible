@@ -1,15 +1,10 @@
 name: testing-pentest
 hosts:
-  - name: kali
-    base_box:
-      image: kali
-      mgmt_user: debian
-    flavor: standard.medium
-  - name: docker-server
+  - name: victim
     base_box:
       image: ubuntu-noble-x86_64
       mgmt_user: ubuntu
-    flavor: standard.medium
+    flavor: standard.small
 routers: 
   - name: router
     base_box:
@@ -21,12 +16,9 @@ networks:
     cidr: 10.0.16.0/24
     accessible_by_user: true
 net_mappings:
-  - host: kali
+  - host: victim
     network: testnet
     ip: 10.0.16.50
-  - host: docker-server
-    network: testnet
-    ip: 10.0.16.60
 router_mappings: 
   - router: router
     network: testnet
