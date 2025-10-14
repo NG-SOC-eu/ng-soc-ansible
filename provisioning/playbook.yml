@@ -1,13 +1,6 @@
 ---
-- name: Configuring Docker-Server
-  hosts: docker-server
+- name: Configuring victim PC
+  hosts: victim
   become: yes
   roles:
-    - docker_server
-
-- name: Configure Kali
-  hosts: kali
-  become: yes
-  roles:
-    - kali
-  
+    - victim
