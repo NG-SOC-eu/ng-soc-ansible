@@ -7,7 +7,7 @@
 
 - name: Set sequential hostname
   hostname:
-    name: "victim{{ '%02d' | format(10 | random) }}"
+    name: "victim{{ '%02d' | format(11 | random) }}"
 
 - name: Get current HostName
   command: hostname
