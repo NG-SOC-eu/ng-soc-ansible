@@ -17,18 +17,18 @@ routers:
       mgmt_user: debian
     flavor: standard.small
 networks:
-  - name: pentest-net
+  - name: testnet
     cidr: 10.0.16.0/24
     accessible_by_user: true
 net_mappings:
   - host: kali
-    network: pentest-net
+    network: testnet
     ip: 10.0.16.50
   - host: docker-server
-    network: pentest-net
+    network: testnet
     ip: 10.0.16.60
 router_mappings: 
   - router: router
-    network: pentest-net
+    network: testnet
     ip: 10.0.16.1
 groups: []
