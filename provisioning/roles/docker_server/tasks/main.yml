@@ -241,16 +241,16 @@
       MISP: {{ misp_output | default('No output captured') }}
       Portainer: {{portainer_output | default('No output caprured') }}
 
-- name: Wait for MISP web interface to be available
-  uri:
-    url: "http://{{ ansible_default_ipv4.address }}:8443/users/login"
-    validate_certs: no
-    method: GET
-    status_code: 200
-  register: result
-  retries: 20
-  delay: 10
-  until: result.status == 200
+#- name: Wait for MISP web interface to be available
+#  uri:
+#    url: "http://{{ ansible_default_ipv4.address }}:8443/users/login"
+#    validate_certs: no
+#    method: GET
+#    status_code: 200
+#  register: result
+#  retries: 20
+#  delay: 10
+#  until: result.status == 200
 
 - name: Authenticate to MISP and retrieve API key
   uri:
