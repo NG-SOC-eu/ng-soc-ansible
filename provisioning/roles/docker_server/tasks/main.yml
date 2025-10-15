@@ -218,10 +218,10 @@
   register: misp_output
 
 - name: Deploy Portainer
-  community.docker.docker_compose_v2:
+  community.docker.docker_container:
     name: portainer
     image: portainer/portainer-ce:latest
-    state: present
+    state: started
     restart_policy: always
     ports: 
       - "9443:9443"
