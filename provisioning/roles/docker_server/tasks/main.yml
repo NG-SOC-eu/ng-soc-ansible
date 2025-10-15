@@ -217,6 +217,19 @@
     build: always
   register: misp_output
 
+- name: Deploy Portainer
+  community.docker.docker_compose_v2:
+    name: portainer
+    image: portainer/portainer-ce:latest
+    state: started
+    restart_policy: always
+    ports: 
+      - "9443:9443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "portainer_data:/data"
+  register: portainer_output
+
 - name: Show Docker Compose output
   ansible.builtin.debug:
     msg: |
@@ -226,6 +239,7 @@
       DFIR_IRIS: {{ dfir_iris_output | default('No output captured') }}
       NG-SOAR: {{ NG_SOAR_output | default('No output captured') }}
       MISP: {{ misp_output | default('No output captured') }}
+      Portainer: {{portainer_output | default('No output caprured') }}
 
 - name: Wait for MISP web interface to be available
   uri:
