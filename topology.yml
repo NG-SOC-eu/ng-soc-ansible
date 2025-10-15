@@ -1,4 +1,4 @@
-name: testing-pentest
+name: test-docker
 hosts:
   - name: kali
     base_box:
