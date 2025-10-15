@@ -4,12 +4,12 @@ hosts:
     base_box:
       image: kali
       mgmt_user: debian
-    flavor: standard.medium
+    flavor: standard.small
   - name: docker-server
     base_box:
       image: ubuntu-noble-x86_64
       mgmt_user: ubuntu
-    flavor: standard.small
+    flavor: standard.medium
 routers: 
   - name: router
     base_box:
