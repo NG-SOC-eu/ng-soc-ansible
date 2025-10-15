@@ -221,7 +221,7 @@
   community.docker.docker_compose_v2:
     name: portainer
     image: portainer/portainer-ce:latest
-    state: started
+    state: present
     restart_policy: always
     ports: 
       - "9443:9443"
