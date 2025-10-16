@@ -233,7 +233,7 @@
 
 - name: Authenticate to MISP and retrieve API key
   uri:
-    url: "http://{{ ansible_default_ipv4.address }}:8443/users/login"
+    url: "https://10.0.12.60:8443/users/login"
     validate_certs: false
     method: POST
     body_format: json
@@ -256,7 +256,7 @@
   lineinfile:
     path: /opt/dfir-iris-custom/.env
     regexp: '^IRIS_MISP_URL='
-    line: "IRIS_MISP_URL=http://{{ ansible_default_ipv4.address }}:8443"
+    line: "IRIS_MISP_URL=https://10.0.12.60:8443"
     state: present
 
 - name: Inject MISP key into DFIR-IRIS .env
@@ -292,7 +292,7 @@
 
 #- name: Wait for MISP web interface to be available
 #  uri:
-#    url: "http://{{ ansible_default_ipv4.address }}:8443/users/login"
+#    url: "https://10.0.12.60:8443/users/login"
 #    validate_certs: false
 #    method: GET
 #    status_code: 200
