@@ -4,7 +4,7 @@ hosts:
     base_box:
       image: kali
       mgmt_user: debian
-    flavor: standard.medium
+    flavor: standard.xmedium
   - name: docker-server
     base_box:
       image: ubuntu-noble-x86_64
