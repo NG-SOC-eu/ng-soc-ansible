@@ -140,42 +140,6 @@
     username: demongsoc
     password: "dckr_pat_OzOR3rfLKW3QcFAFUfAi_Je_5_Q"
 
-- name: Build and run RITA backend services
-  community.docker.docker_compose_v2:
-    project_src: "/opt/rita-docker/backend-container"
-    state: present
-    build: always
-  register: backend_compose_output
-
-- name: Build and run RITA frontend services
-  community.docker.docker_compose_v2:
-    project_src: "/opt/rita-docker/frontend-container"
-    state: present
-    build: always
-  register: frontend_compose_output
-    
-- name: Build and run RITA tools services
-  community.docker.docker_compose_v2:
-    project_src: "/opt/rita-docker/tools-containers"
-    state: present
-    build: always
-  register: tools_compose_output
-
-# Add it later
-#- name: Build and run DFIR-IRIS
-#  community.docker.docker_compose_v2:
-#    project_src: "/opt/dfir-iris-custom"
-#    state: present
-#    build: always
-#  register: dfir_iris_output
-
-- name: Build and run NG-SOAR
-  community.docker.docker_compose_v2:
-    project_src: "/opt/NG-SOAR"
-    state: present
-    build: always
-  register: NG_SOAR_output
-
 - name: Download MISP docker
   git:
     repo: "https://github.com/MISP/misp-docker.git"
@@ -211,7 +175,7 @@
     insertafter: EOF
     backup: yes
 
-- name: 
+- name: Deployment of MISP Docker
   community.docker.docker_compose_v2:
     project_src: "/opt/misp-docker"
     state: present
@@ -230,6 +194,42 @@
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "portainer_data:/data"
   register: portainer_output
+
+- name: Build and run RITA backend services
+  community.docker.docker_compose_v2:
+    project_src: "/opt/rita-docker/backend-container"
+    state: present
+    build: always
+  register: backend_compose_output
+
+- name: Build and run RITA frontend services
+  community.docker.docker_compose_v2:
+    project_src: "/opt/rita-docker/frontend-container"
+    state: present
+    build: always
+  register: frontend_compose_output
+    
+- name: Build and run RITA tools services
+  community.docker.docker_compose_v2:
+    project_src: "/opt/rita-docker/tools-containers"
+    state: present
+    build: always
+  register: tools_compose_output
+
+# Add it later
+#- name: Build and run DFIR-IRIS
+#  community.docker.docker_compose_v2:
+#    project_src: "/opt/dfir-iris-custom"
+#    state: present
+#    build: always
+#  register: dfir_iris_output
+
+- name: Build and run NG-SOAR
+  community.docker.docker_compose_v2:
+    project_src: "/opt/NG-SOAR"
+    state: present
+    build: always
+  register: NG_SOAR_output
 
 - name: Get or generate MISP API key for admin user
   community.docker.docker_container_exec:
