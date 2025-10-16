@@ -231,26 +231,15 @@
       - "portainer_data:/data"
   register: portainer_output
 
-- name: Authenticate to MISP and retrieve API key
-  uri:
-    url: "https://10.0.12.60:8443/users/login"
-    validate_certs: false
-    method: POST
-    body_format: json
-    body:
-      email: "admin@admin.test"
-      password: "admin"
-    headers:
-      Content-Type: "application/json"
-    return_content: yes
-  register: misp_auth
-  retries: 5
-  delay: 10
-  until: misp_auth.status == 200
+- name: Get or generate MISP API key for admin user
+  community.docker.docker_container_exec:
+    container: misp-docker-misp-core-1
+    command: "/var/www/MISP/app/Console/cake user change_authkey admin@admin.test"
+  register: misp_user_info
 
 - name: Save MISP API key fact
   set_fact:
-    misp_api_key: "{{ misp_auth.json.AuthKey }}"
+    misp_api_key: "{{ misp_user_info.stdout.split('Old authentication keys disabled and new key created: ')[1] | trim }}"
 
 - name: Inject MISP integration settings into DFIR-IRIS .env
   lineinfile:
@@ -259,18 +248,18 @@
     line: "IRIS_MISP_URL=https://10.0.12.60:8443"
     state: present
 
+- name: Disable SSL verification for MISP connection
+  lineinfile:
+    path: /opt/dfir-iris-custom/.env
+    regexp: '^IRIS_MISP_VERIFY_CERT='
+    line: "IRIS_MISP_VERIFY_CERT=false"
+
 - name: Inject MISP key into DFIR-IRIS .env
   lineinfile:
     path: /opt/dfir-iris-custom/.env
     regexp: '^IRIS_MISP_KEY='
     line: "IRIS_MISP_KEY={{ misp_api_key }}"
     state: present
-
-- name: Disable SSL verification for MISP connection
-  lineinfile:
-    path: /opt/dfir-iris-custom/.env
-    regexp: '^IRIS_MISP_VERIFY_CERT='
-    line: "IRIS_MISP_VERIFY_CERT=false"
 
 - name: Build and run DFIR-IRIS
   community.docker.docker_compose_v2:
@@ -289,17 +278,6 @@
       NG-SOAR: {{ NG_SOAR_output | default('No output captured') }}
       MISP: {{ misp_output | default('No output captured') }}
       Portainer: {{portainer_output | default('No output caprured') }}
-
-#- name: Wait for MISP web interface to be available
-#  uri:
-#    url: "https://10.0.12.60:8443/users/login"
-#    validate_certs: false
-#    method: GET
-#    status_code: 200
-#  register: result
-#  retries: 20
-#  delay: 10
-#  until: result.status == 200
 
 - name: Unmount SMB share
   ansible.builtin.mount:
