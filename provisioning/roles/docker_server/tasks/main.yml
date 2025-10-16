@@ -161,12 +161,13 @@
     build: always
   register: tools_compose_output
 
-- name: Build and run DFIR-IRIS
-  community.docker.docker_compose_v2:
-    project_src: "/opt/dfir-iris-custom"
-    state: present
-    build: always
-  register: dfir_iris_output
+# Add it later
+#- name: Build and run DFIR-IRIS
+#  community.docker.docker_compose_v2:
+#    project_src: "/opt/dfir-iris-custom"
+#    state: present
+#    build: always
+#  register: dfir_iris_output
 
 - name: Build and run NG-SOAR
   community.docker.docker_compose_v2:
@@ -230,6 +231,54 @@
       - "portainer_data:/data"
   register: portainer_output
 
+- name: Authenticate to MISP and retrieve API key
+  uri:
+    url: "http://{{ ansible_default_ipv4.address }}:8443/users/login"
+    validate_certs: false
+    method: POST
+    body_format: json
+    body:
+      email: "admin@admin.test"
+      password: "admin"
+    headers:
+      Content-Type: "application/json"
+    return_content: yes
+  register: misp_auth
+  retries: 5
+  delay: 10
+  until: misp_auth.status == 200
+
+- name: Save MISP API key fact
+  set_fact:
+    misp_api_key: "{{ misp_auth.json.AuthKey }}"
+
+- name: Inject MISP integration settings into DFIR-IRIS .env
+  lineinfile:
+    path: /opt/dfir-iris-custom/.env
+    regexp: '^IRIS_MISP_URL='
+    line: "IRIS_MISP_URL=http://{{ ansible_default_ipv4.address }}:8443"
+    state: present
+
+- name: Inject MISP key into DFIR-IRIS .env
+  lineinfile:
+    path: /opt/dfir-iris-custom/.env
+    regexp: '^IRIS_MISP_KEY='
+    line: "IRIS_MISP_KEY={{ misp_api_key }}"
+    state: present
+
+- name: Disable SSL verification for MISP connection
+  lineinfile:
+    path: /opt/dfir-iris-custom/.env
+    regexp: '^IRIS_MISP_VERIFY_CERT='
+    line: "IRIS_MISP_VERIFY_CERT=false"
+
+- name: Build and run DFIR-IRIS
+  community.docker.docker_compose_v2:
+    project_src: "/opt/dfir-iris-custom"
+    state: present
+    build: always
+  register: dfir_iris_output
+
 - name: Show Docker Compose output
   ansible.builtin.debug:
     msg: |
@@ -244,48 +293,13 @@
 #- name: Wait for MISP web interface to be available
 #  uri:
 #    url: "http://{{ ansible_default_ipv4.address }}:8443/users/login"
-#    validate_certs: no
+#    validate_certs: false
 #    method: GET
 #    status_code: 200
 #  register: result
 #  retries: 20
 #  delay: 10
 #  until: result.status == 200
-
-- name: Authenticate to MISP and retrieve API key
-  uri:
-    url: "http://{{ ansible_default_ipv4.address }}:8082/users/login"
-    validate_certs: no
-    method: POST
-    body_format: json
-    body:
-      email: "admin@admin.test"
-      password: "admin"
-    headers:
-      Content-Type: "application/json"
-    return_content: yes
-  register: misp_auth
-  retries: 5
-  delay: 10
-  until: misp_auth.status == 200
-
-
-- name: Save MISP API key fact
-  set_fact:
-    misp_api_key: "{{ misp_auth.json.AuthKey }}"
-
-- name: Deploy DFIR-IRIS container with MISP integration
-  community.docker.docker_container:
-    name: dfir-iris
-    image: dfiriris/iris:latest
-    state: started
-    restart_policy: always
-    ports:
-      - "8000:8000"
-    env:
-      IRIS_MISP_URL: "http://{{ ansible_default_ipv4.address }}:8443"
-      validate_certs: no
-      IRIS_MISP_KEY: "{{ misp_api_key }}"
 
 - name: Unmount SMB share
   ansible.builtin.mount:
