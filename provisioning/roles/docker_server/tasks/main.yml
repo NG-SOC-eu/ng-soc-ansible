@@ -254,7 +254,7 @@
 
 - name: Authenticate to MISP and retrieve API key
   uri:
-    url: "http://{{ ansible_default_ipv4.address }}:8443/users/login"
+    url: "http://{{ ansible_default_ipv4.address }}:8082/users/login"
     validate_certs: no
     method: POST
     body_format: json
