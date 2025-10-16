@@ -1,7 +1,7 @@
 - name: Set password on User debian
   ansible.builtin.user:
     name: debian
-    password: "$y$j9T$z5kEdppfL2Iie0nI.MK/c0$ZLkX5b3a2BKKhBF/MtiH1yW.5iIzrc4wClOwr3tWBD."
+    password: "$y$j9T$gj9FUEi0fMBh6NUE1wLFY.$kR5JJnpEPmXeLAgCs0fl81ssYnkRKG2A1csSPskjTWD"
     update_password: always
     
 - name: Update apt repo cache
