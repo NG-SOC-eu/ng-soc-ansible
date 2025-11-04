@@ -6,8 +6,9 @@
     
 - name: Update apt repo cache
   apt:
-    update_cache:
+    update_cache: yes
     cache_valid_time: 3600
+  become: yes
 
 #- name: Update all packages
 #  apt:
@@ -20,57 +21,18 @@
       - zaproxy
       - nmap
       - "gvm*"
-#      - git
-#      - python3-full
-#      - python3-pip
-#      - python3-venv
-#      - build-essential
-#      - libssl-dev
-#      - libffi-dev
-#      - python3-dev
-#      - golang
-#      - nodejs
-#      - npm
-#      - nano
-#      - smbclient
-#      - cifs-utils
-#      - unzip
-#      - rsync
-#      - redis
-#      - postgresql
-    state: present
-    install_recommends: yes
-    update_cache: yes
-
-- name: Install apt Packages (git, python, build-essentials)
-  apt: 
-    name: 
       - git
       - python3-full
       - python3-pip
       - python3-venv
-      - python3-dev
       - build-essential
-    state: present
-    install_recommends: yes
-    update_cache: yes
-
-- name: Install apt Packages (libssl, goland, nodejs, npm, nano)
-  apt: 
-    name: 
       - libssl-dev
       - libffi-dev
+      - python3-dev
       - golang
       - nodejs
       - npm
       - nano
-    state: present
-    install_recommends: yes
-    update_cache: yes
-
-- name: Install apt Packages (smbclient, cifs, unzip, rsync, redis, postgresql)
-  apt: 
-    name: 
       - smbclient
       - cifs-utils
       - unzip
@@ -79,7 +41,45 @@
       - postgresql
     state: present
     install_recommends: yes
-    update_cache: yes
+
+#- name: Install apt Packages (git, python, build-essentials)
+#  apt: 
+#    name: 
+#      - git
+#      - python3-full
+#      - python3-pip
+#      - python3-venv
+#      - python3-dev
+#      - build-essential
+#    state: present
+#    install_recommends: yes
+#    update_cache: yes
+
+#- name: Install apt Packages (libssl, goland, nodejs, npm, nano)
+#  apt: 
+#    name: 
+#      - libssl-dev
+#      - libffi-dev
+#      - golang
+#      - nodejs
+#      - npm
+#      - nano
+#    state: present
+#    install_recommends: yes
+#    update_cache: yes
+
+#- name: Install apt Packages (smbclient, cifs, unzip, rsync, redis, postgresql)
+#  apt: 
+#    name: 
+#      - smbclient
+#      - cifs-utils
+#      - unzip
+#      - rsync
+#      - redis
+#      - postgresql
+#    state: present
+#    install_recommends: yes
+#    update_cache: yes
   
 - name: Create mount point
   file:
@@ -237,9 +237,28 @@
   command: sudo -u _gvm gvmd --user=admin --new-password=admin
 
 - name: Install OpenVAS (gvm-setup)
+  command: gvm-setup
+  become: yes
+  register: gvm_setup_output
+  failed_when: gvm_setup_output.rc != 0 and "already" not in gvm_setup_output.stderr  # Allow if already set up
+  changed_when: gvm_setup_output.rc == 0
+
+- name: Debug GVM setup output
+  debug:
+    var: gvm_setup_output.stdout_lines
+  when: gvm_setup_output is changed
+
+- name: Change OpenVAS admin password
+  command: sudo -u _gvm gvmd --user=admin --new-password=admin
+
+- name: Update OpenVAS Feed (greenbone-feed-sync)
   command: greenbone-feed-sync
   register: gvm_feed_sync_output
-  ignore_errors: yes
+  environment:
+    GREENBONE_FEED_SYNC_FEED_RELEASE: "{{ ansible_local.gvm.version | default('latest') }}"  # Auto-detects post-upgrade
+  failed_when: feed_sync_output.rc != 0
+#  async: 3600  # Allow up to 1 hour for large initial sync
+#  poll: 30     # Check every 30s
 
 - name: Run gvm-check-setup to verify
   command: gvm-check-setup
