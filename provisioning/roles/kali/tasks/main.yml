@@ -6,14 +6,14 @@
     
 - name: Update apt repo cache
   apt:
-    update_cache: yes
+    upgrade: 
     cache_valid_time: 3600
   become: yes
 
-#- name: Update all packages
-#  apt:
-#    name: "*"
-#    state: latest
+- name: Update all packages
+  apt:
+    upgrade: dist
+    autoremove: yes
 
 - name: Install packages (zap, nmap, gvm)
   apt:
