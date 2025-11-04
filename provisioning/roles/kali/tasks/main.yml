@@ -10,6 +10,11 @@
     cache_valid_time: 3600
   become: yes
 
+- name: Update all packages
+  apt:
+    upgrade: dist
+    autoremove: yes
+
 - name: Install needed packages
   apt:
     name: 
