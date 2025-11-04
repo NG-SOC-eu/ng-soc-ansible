@@ -254,9 +254,9 @@
 - name: Update OpenVAS Feed (greenbone-feed-sync)
   command: greenbone-feed-sync
   register: gvm_feed_sync_output
-  environment:
-    GREENBONE_FEED_SYNC_FEED_RELEASE: "{{ ansible_local.gvm.version | default('latest') }}"  # Auto-detects post-upgrade
-  failed_when: feed_sync_output.rc != 0
+#  environment:
+#    GREENBONE_FEED_SYNC_FEED_RELEASE: "{{ ansible_local.gvm.version | default('latest') }}"  # Auto-detects post-upgrade
+#  failed_when: feed_sync_output.rc != 0
 #  async: 3600  # Allow up to 1 hour for large initial sync
 #  poll: 30     # Check every 30s
 
