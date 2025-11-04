@@ -10,11 +10,6 @@
     cache_valid_time: 3600
   become: yes
 
-#- name: Update all packages
-#  apt:
-#    upgrade: dist
-#    autoremove: yes
-
 - name: Install packages (zap, nmap, gvm)
   apt:
     name: 
@@ -41,45 +36,6 @@
       - postgresql
     state: present
     install_recommends: yes
-
-#- name: Install apt Packages (git, python, build-essentials)
-#  apt: 
-#    name: 
-#      - git
-#      - python3-full
-#      - python3-pip
-#      - python3-venv
-#      - python3-dev
-#      - build-essential
-#    state: present
-#    install_recommends: yes
-#    update_cache: yes
-
-#- name: Install apt Packages (libssl, goland, nodejs, npm, nano)
-#  apt: 
-#    name: 
-#      - libssl-dev
-#      - libffi-dev
-#      - golang
-#      - nodejs
-#      - npm
-#      - nano
-#    state: present
-#    install_recommends: yes
-#    update_cache: yes
-
-#- name: Install apt Packages (smbclient, cifs, unzip, rsync, redis, postgresql)
-#  apt: 
-#    name: 
-#      - smbclient
-#      - cifs-utils
-#      - unzip
-#      - rsync
-#      - redis
-#      - postgresql
-#    state: present
-#    install_recommends: yes
-#    update_cache: yes
   
 - name: Create mount point
   file:
@@ -182,11 +138,6 @@
     requirements: /opt/caldera/requirements-dev.txt
     virtualenv: /opt/caldera/venv
     virtualenv_python: python3
-
-#- name: Run Caldera Server.py
-#  command: /opt/caldera/venv/bin/python3 server.py --insecure --build
-#  args: 
-#    chdir: /opt/caldera/
     
 - name: Create startup script
   copy:
