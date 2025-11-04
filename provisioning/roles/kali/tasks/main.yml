@@ -203,8 +203,8 @@
 #  async: 3600  # Allow up to 1 hour for large initial sync
 #  poll: 30     # Check every 30s
 
-- name: Rebuild GVM data
-  command: sudo -u _gvm gvmd --rebuild-gvmd-data=all
+#- name: Rebuild GVM data
+#  command: sudo -u _gvm gvmd --rebuild-gvmd-data=all
 
 - name: Run gvm-check-setup to verify
   command: gvm-check-setup
