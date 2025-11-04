@@ -255,7 +255,7 @@
 - name: Rebuild GVM data
   command: /usr/sbin/gvmd --rebuild-gvmd-data=all
   become: yes
-  become_user: _gvm
+#  become_user: _gvm
 
 - name: Run gvm-check-setup to verify
   command: gvm-check-setup
