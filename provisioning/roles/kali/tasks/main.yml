@@ -10,10 +10,10 @@
     cache_valid_time: 3600
   become: yes
 
-#- name: Update all packages
-#  apt:
-#    name: "*"
-#    state: latest
+- name: Update all packages
+  apt:
+    upgrade: dist
+    autoremove: yes
 
 - name: Install packages (zap, nmap, gvm)
   apt:
@@ -230,14 +230,6 @@
 
 - name: Install OpenVAS (gvm-setup)
   command: gvm-setup
-  register: gvm_setup_output
-  ignore_errors: yes
-
-- name: Change OpenVAS admin password
-  command: sudo -u _gvm gvmd --user=admin --new-password=admin
-
-- name: Install OpenVAS (gvm-setup)
-  command: gvm-setup
   become: yes
   register: gvm_setup_output
   failed_when: gvm_setup_output.rc != 0 and "already" not in gvm_setup_output.stderr  # Allow if already set up
@@ -259,6 +251,10 @@
 #  failed_when: feed_sync_output.rc != 0
 #  async: 3600  # Allow up to 1 hour for large initial sync
 #  poll: 30     # Check every 30s
+
+- name: Rebuild GVM data (imports feeds to DB)
+  command: sudo -u _gvm gvmd --rebuild-gvmd-data=all
+  become: yes
 
 - name: Run gvm-check-setup to verify
   command: gvm-check-setup
