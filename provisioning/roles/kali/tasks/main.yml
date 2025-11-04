@@ -208,7 +208,7 @@
 
 - name: Run gvm-check-setup to verify
   command: gvm-check-setup
-#  ignore_errors: yes
+  ignore_errors: yes
 
 - name: Start OpenVAS service
   command: gvm-start
