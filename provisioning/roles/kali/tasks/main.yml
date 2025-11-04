@@ -253,7 +253,7 @@
 #  poll: 30     # Check every 30s
 
 - name: Rebuild GVM data (imports feeds to DB)
-  command: sudo -u _gvm gvmd --rebuild-gvmd-data=all
+  command: gvmd --rebuild-gvmd-data=all
   become: yes
 
 - name: Run gvm-check-setup to verify
