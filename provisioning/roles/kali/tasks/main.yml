@@ -10,7 +10,7 @@
     cache_valid_time: 3600
   become: yes
 
-- name: Install packages (zap, nmap, gvm)
+- name: Install needed packages
   apt:
     name: 
       - zaproxy
