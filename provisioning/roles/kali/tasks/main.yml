@@ -199,9 +199,6 @@
 - name: Change OpenVAS admin password
   command: sudo -u _gvm gvmd --user=admin --new-password=admin
 
-- name: Stop OpenVAS service
-  command: gvm-stop
-
 - name: Update OpenVAS Feed (greenbone-feed-sync)
   command: greenbone-feed-sync
   register: gvm_feed_sync_output
