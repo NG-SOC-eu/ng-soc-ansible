@@ -10,12 +10,12 @@
     cache_valid_time: 3600
   become: yes
 
-#- name: Update all packages
-#  apt:
-#    upgrade: dist
-#    autoremove: yes
+- name: Update all packages
+  apt:
+    upgrade: dist
+    autoremove: yes
 
-- name: Install packages (zap, nmap, gvm)
+- name: Install needed packages
   apt:
     name: 
       - zaproxy
@@ -41,45 +41,6 @@
       - postgresql
     state: present
     install_recommends: yes
-
-#- name: Install apt Packages (git, python, build-essentials)
-#  apt: 
-#    name: 
-#      - git
-#      - python3-full
-#      - python3-pip
-#      - python3-venv
-#      - python3-dev
-#      - build-essential
-#    state: present
-#    install_recommends: yes
-#    update_cache: yes
-
-#- name: Install apt Packages (libssl, goland, nodejs, npm, nano)
-#  apt: 
-#    name: 
-#      - libssl-dev
-#      - libffi-dev
-#      - golang
-#      - nodejs
-#      - npm
-#      - nano
-#    state: present
-#    install_recommends: yes
-#    update_cache: yes
-
-#- name: Install apt Packages (smbclient, cifs, unzip, rsync, redis, postgresql)
-#  apt: 
-#    name: 
-#      - smbclient
-#      - cifs-utils
-#      - unzip
-#      - rsync
-#      - redis
-#      - postgresql
-#    state: present
-#    install_recommends: yes
-#    update_cache: yes
   
 - name: Create mount point
   file:
@@ -182,11 +143,6 @@
     requirements: /opt/caldera/requirements-dev.txt
     virtualenv: /opt/caldera/venv
     virtualenv_python: python3
-
-#- name: Run Caldera Server.py
-#  command: /opt/caldera/venv/bin/python3 server.py --insecure --build
-#  args: 
-#    chdir: /opt/caldera/
     
 - name: Create startup script
   copy:
@@ -246,24 +202,9 @@
 - name: Update OpenVAS Feed (greenbone-feed-sync)
   command: greenbone-feed-sync
   register: gvm_feed_sync_output
-#  environment:
-#    GREENBONE_FEED_SYNC_FEED_RELEASE: "{{ ansible_local.gvm.version | default('latest') }}"  # Auto-detects post-upgrade
-#  failed_when: feed_sync_output.rc != 0
-#  async: 3600  # Allow up to 1 hour for large initial sync
-#  poll: 30     # Check every 30s
-
-- name: Rebuild GVM data
-  command: /usr/sbin/gvmd --rebuild-gvmd-data=all
-  become: yes
-#  become_user: _gvm
-
-- name: Run gvm-check-setup to verify
-  command: gvm-check-setup
-  ignore_errors: yes
 
 - name: Start OpenVAS service
   command: gvm-start
-  ignore_errors: yes
 
 - name: Metasploit Install Python packages for automation
   pip:
