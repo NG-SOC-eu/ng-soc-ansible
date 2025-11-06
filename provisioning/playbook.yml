@@ -11,3 +11,8 @@
   roles:
     - kali
   
+- name: Configuring victim PC
+  hosts: victim
+  become: yes
+  roles:
+    - victim
