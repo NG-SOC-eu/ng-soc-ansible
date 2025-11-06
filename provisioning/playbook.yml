@@ -1,9 +1,9 @@
 ---
-#- name: Configuring Docker-Server
-#  hosts: docker-server
-#  become: yes
-#  roles:
-#    - docker_server
+- name: Configuring Docker-Server
+  hosts: docker-server
+  become: yes
+  roles:
+    - docker_server
 
 - name: Configure Kali
   hosts: kali
