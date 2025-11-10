@@ -1,20 +1,10 @@
-name: testing
+name: testing-kali-custom
 hosts:
   - name: kali
     base_box:
-      image: kali
+      image: kali-custom
       mgmt_user: debian
-    flavor: standard.xmedium
-  - name: docker-server
-    base_box:
-      image: ubuntu-noble-x86_64
-      mgmt_user: ubuntu
     flavor: standard.xsmedium
-  - name: victim
-    base_box:
-      image: ubuntu-noble-x86_64
-      mgmt_user: ubuntu
-    flavor: standard.small
 routers: 
   - name: router
     base_box:
@@ -29,12 +19,6 @@ net_mappings:
   - host: kali
     network: testnet
     ip: 10.0.16.50
-  - host: docker-server
-    network: testnet
-    ip: 10.0.16.60
-  - host: victim
-    network: testnet
-    ip: 10.0.16.100
 router_mappings: 
   - router: router
     network: testnet
