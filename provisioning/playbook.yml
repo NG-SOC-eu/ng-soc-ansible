@@ -7,7 +7,7 @@
 
 - name: Configure Kali
   hosts: kali
-  become: yes
+#  become: yes
   roles:
     - kali
   
