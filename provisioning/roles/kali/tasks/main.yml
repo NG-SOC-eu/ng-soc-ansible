@@ -15,3 +15,4 @@
   apt:
     upgrade: dist
     autoremove: yes
+  become: yes
