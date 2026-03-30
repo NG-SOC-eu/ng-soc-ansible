@@ -56,7 +56,7 @@
     opts: "guest,vers=3.0"
     state: mounted
 
-- name: Copy OpenVPN deb
+- name: Copy Scripts
   copy:
     src: "/mnt/smb_shared/scripts.zip"
     dest: "/opt/scripts.zip"
