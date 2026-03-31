@@ -196,6 +196,24 @@
     var: gvm_setup_output.stdout_lines
   when: gvm_setup_output is changed
 
+- name: Migrate OpenVAS database to current version
+  ansible.builtin.command: gvmd --migrate
+  become: yes
+  become_user: _gvm
+  async: 300
+  poll: 5
+  register: gvm_migrate_result
+  failed_when: 
+    - gvm_migrate_result.rc != 0 
+    - "'already up to date' not in gvm_migrate_result.stderr"
+
+- name: Update OpenVAS Feeds (NVTs, SCAP, CERT)
+  ansible.builtin.command: gvm-feed-update
+  become: yes
+  async: 1800 # Δίνουμε έως 30 λεπτά χρόνο
+  poll: 0     # Δεν περιμένουμε να τελειώσει για να συνεχίσουμε το playbook
+  register: feed_update_job
+
 - name: Change OpenVAS admin password
   command: sudo -u _gvm gvmd --user=admin --new-password=admin
 
@@ -203,8 +221,14 @@
   command: greenbone-feed-sync
   register: gvm_feed_sync_output
 
-- name: Start OpenVAS service
-  command: gvm-start
+#- name: Start OpenVAS service
+#  command: gvm-start
+
+- name: Ensure gvmd service is running
+  ansible.builtin.service:
+    name: gvmd
+    state: started
+    enabled: yes
 
 - name: Metasploit Install Python packages for automation
   pip:
