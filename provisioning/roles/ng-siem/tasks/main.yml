@@ -69,8 +69,33 @@
     delay: 10
     timeout: 300
 
-- name: Force start SIEM UI containers
-  shell: |
-    docker start wazuh-dashboard-init || true
-    sleep 30
-    docker start ui backend alerts-correlator wazuh-dashboard
+- name: Run Wazuh Dashboard Init (Imports Patterns)
+  shell: "docker start wazuh-dashboard-init"
+  register: init_result
+  failed_when: false # It's okay if this is already finished
+  changed_when: "init_result.rc == 0"
+
+- name: Start Pandora UI Container
+  docker_container:
+    name: ui
+    state: started
+  register: ui_status
+
+- name: Start SIEM Backend Engine
+  docker_container:
+    name: backend
+    state: started
+  register: backend_status
+
+- name: Start Alerts Correlator
+  docker_container:
+    name: alerts-correlator
+    state: started
+  register: correlator_status
+
+- name: Ensure Native Wazuh Dashboard Service is Running
+  systemd:
+    name: wazuh-dashboard
+    state: started
+    enabled: yes
+  register: native_dash_status
