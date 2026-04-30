@@ -1,1 +1,19 @@
 ---
+- name: Fix /etc/hosts loopback conflict for SIEM services
+  lineinfile:
+    path: /etc/hosts
+    regexp: '127.0.0.1\s+{{ item }}'
+    line: "{{ ansible_default_ipv4.address }} {{ item }}"
+    state: present
+  loop:
+    - app.mini.ngsiem.sph.gr
+    - backend.mini.ngsiem.sph.gr
+    - wazuh-dashboard.mini.ngsiem.sph.gr
+    - wazuh-indexer.mini.ngsiem.sph.gr
+    - kafka.mini.ngsiem.sph.gr
+    - guacamole.mini.ngsiem.sph.gr
+
+- name: Ensure Docker services are restarted with new network config
+  systemd:
+    name: docker
+    state: restarted
