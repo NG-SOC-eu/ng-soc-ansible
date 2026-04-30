@@ -18,21 +18,34 @@
         line: "127.0.0.1 localhost"
 
 - name: Map SIEM FQDNs to Internal Pentest IP (ens4)
-      lineinfile:
-        path: /etc/hosts
-        regexp: '.*{{ item }}$'
-        line: "{{ ansible_ens4.ipv4.address }} {{ item }}"
-        state: present
-      loop:
-        - wazuh-indexer.mini.ngsiem.sph.gr
-        - wazuh-manager.mini.ngsiem.sph.gr
-        - wazuh-dashboard.mini.ngsiem.sph.gr
-        - kafka.mini.ngsiem.sph.gr
-        - backend.mini.ngsiem.sph.gr
-        - app.mini.ngsiem.sph.gr
-        - guacamole.mini.ngsiem.sph.gr
-        - keycloak.mini.ngsiem.sph.gr
-        - misp.mini.ngsiem.sph.gr
+  lineinfile:
+    path: /etc/hosts
+    # This regex ensures we replace ANY existing entry for the domain
+    regexp: '.*{{ item }}$'
+    # Use ens4 specifically to avoid the 192.168.x.x management IP
+    line: "{{ ansible_ens4.ipv4.address }} {{ item }}"
+    state: present
+  loop:
+    - wazuh-indexer.mini.ngsiem.sph.gr
+    - wazuh-manager.mini.ngsiem.sph.gr
+    - wazuh-dashboard.mini.ngsiem.sph.gr
+    - fluentd.mini.ngsiem.sph.gr
+    - keycloak.mini.ngsiem.sph.gr
+    - postgres.keycloak.mini.ngsiem.sph.gr
+    - misp.mini.ngsiem.sph.gr
+    - mariadb.misp.mini.ngsiem.sph.gr
+    - redis.misp.mini.ngsiem.sph.gr
+    - modules.misp.mini.ngsiem.sph.gr
+    - zookeeper.mini.ngsiem.sph.gr
+    - kafka.mini.ngsiem.sph.gr
+    - ui.kafka.mini.ngsiem.sph.gr
+    - navigator.mini.ngsiem.sph.gr
+    - db.backend.mini.ngsiem.sph.gr
+    - cache.backend.mini.ngsiem.sph.gr
+    - backend.mini.ngsiem.sph.gr
+    - guacamole.mini.ngsiem.sph.gr
+    - iframe.mini.ngsiem.sph.gr
+    - app.mini.ngsiem.sph.gr
 
 - name: Restart Docker to apply new networking
   systemd:
