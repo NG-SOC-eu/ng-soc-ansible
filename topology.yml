@@ -8,7 +8,7 @@ hosts:
   - name: ng-siem
     base_box:
       image: ngsiem
-      mgmt_user: ubuntu
+      mgmt_user: admin
     flavor: standard.ngsiem
 routers: 
   - name: router
