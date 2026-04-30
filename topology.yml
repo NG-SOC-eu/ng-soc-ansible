@@ -5,11 +5,11 @@ hosts:
       image: kali
       mgmt_user: debian
     flavor: standard.xmedium
-  - name: docker-server
+  - name: ng-siem
     base_box:
-      image: ubuntu-noble-x86_64
+      image: ngsiem
       mgmt_user: ubuntu
-    flavor: standard.small
+    flavor: standard.ngsiem
 routers: 
   - name: router
     base_box:
@@ -24,7 +24,7 @@ net_mappings:
   - host: kali
     network: pentest-net
     ip: 10.0.16.50
-  - host: docker-server
+  - host: ng-siem
     network: pentest-net
     ip: 10.0.16.60
 router_mappings: 
