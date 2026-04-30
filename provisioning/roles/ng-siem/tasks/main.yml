@@ -1,33 +1,63 @@
 ---
-- name: Map all services to the actual interface IP
-  lineinfile:
-    path: /etc/hosts
-    regexp: '127.0.0.1\s+{{ item }}'
-    line: "{{ ansible_default_ipv4.address }} {{ item }}"
-    state: present
-  loop:
-    - wazuh-indexer.mini.ngsiem.sph.gr
-    - wazuh-manager.mini.ngsiem.sph.gr
-    - wazuh-dashboard.mini.ngsiem.sph.gr
-    - fluentd.mini.ngsiem.sph.gr
-    - keycloak.mini.ngsiem.sph.gr
-    - postgres.keycloak.mini.ngsiem.sph.gr
-    - misp.mini.ngsiem.sph.gr
-    - mariadb.misp.mini.ngsiem.sph.gr
-    - redis.misp.mini.ngsiem.sph.gr
-    - modules.misp.mini.ngsiem.sph.gr
-    - zookeeper.mini.ngsiem.sph.gr
-    - kafka.mini.ngsiem.sph.gr
-    - ui.kafka.mini.ngsiem.sph.gr
-    - navigator.mini.ngsiem.sph.gr
-    - db.backend.mini.ngsiem.sph.gr
-    - cache.backend.mini.ngsiem.sph.gr
-    - backend.mini.ngsiem.sph.gr
-    - guacamole.mini.ngsiem.sph.gr
-    - iframe.mini.ngsiem.sph.gr
-    - app.mini.ngsiem.sph.gr
+# 2. FILE SYSTEM & DIRECTORY FIXES (The "Wazuh-Indexer" fix)
+- name: Create missing Wazuh Indexer log directory
+  file:
+    path: /var/log/wazuh-indexer
+    state: directory
+    owner: wazuh-indexer
+    group: wazuh-indexer
+    mode: '0755'
+
+# 3. NETWORKING & HOST RESOLUTION (The "Loopback" fix)
+- name: Configure internal routing in /etc/hosts
+  block:
+    - name: Restore standard localhost entry
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127.0.0.1'
+        line: "127.0.0.1 localhost"
+
+- name: Map SIEM FQDNs to Internal Pentest IP (ens4)
+      lineinfile:
+        path: /etc/hosts
+        regexp: '.*{{ item }}$'
+        line: "{{ ansible_ens4.ipv4.address }} {{ item }}"
+        state: present
+      loop:
+        - wazuh-indexer.mini.ngsiem.sph.gr
+        - wazuh-manager.mini.ngsiem.sph.gr
+        - wazuh-dashboard.mini.ngsiem.sph.gr
+        - kafka.mini.ngsiem.sph.gr
+        - backend.mini.ngsiem.sph.gr
+        - app.mini.ngsiem.sph.gr
+        - guacamole.mini.ngsiem.sph.gr
+        - keycloak.mini.ngsiem.sph.gr
+        - misp.mini.ngsiem.sph.gr
 
 - name: Restart Docker to apply new networking
   systemd:
     name: docker
     state: restarted
+
+# 4. SERVICE RECOVERY
+- name: Ensure Wazuh Indexer and Docker are restarted
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+    enabled: yes
+  loop:
+    - wazuh-indexer
+    - wazuh-manager
+    - docker
+
+- name: Wait for Wazuh Indexer API to be ready (Port 9200)
+  wait_for:
+    port: 9200
+    delay: 10
+    timeout: 300
+
+- name: Force start SIEM UI containers
+  shell: |
+    docker start wazuh-dashboard-init || true
+    sleep 30
+    docker start ui backend alerts-correlator wazuh-dashboard
