@@ -7,7 +7,7 @@ hosts:
     flavor: standard.xmedium
   - name: ng-siem
     base_box:
-      image: ng-siem
+      image: siemng
       mgmt_user: sph
     flavor: standard.ngsiem
 routers: 
