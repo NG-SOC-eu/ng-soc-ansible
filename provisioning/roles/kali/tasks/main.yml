@@ -9,3 +9,19 @@
     update_cache: yes
     cache_valid_time: 3600
   become: yes
+
+- name: Add Wazuh FQDNs to /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    # This looks up the IP of 'ng-siem' from the inventory
+    line: "{{ hostvars['ng-siem']['ansible_host'] }} {{ item }}"
+    regexp: ".*{{ item }}$"
+    state: present
+  loop:
+    - keycloak.kafka.mini.ngsiem.sph.gr
+    - misp.kafka.mini.ngsiem.sph.gr
+    - backend.mini.ngsiem.sph.gr
+    - navigator.mini.ngsiem.sph.gr
+    - iframe.mini.ngsiem.sph.gr
+    - wazuh-dashboard.kafka.mini.ngsiem.sph.gr
+    - app.mini.ngsiem.sph.gr
