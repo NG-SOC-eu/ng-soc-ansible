@@ -2,7 +2,7 @@ name: kali-scripts
 hosts:
   - name: kali
     base_box:
-      image: kali-custom
+      image: kali
       mgmt_user: debian
     flavor: standard.xsmedium
 routers: 
