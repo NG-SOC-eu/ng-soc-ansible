@@ -272,6 +272,14 @@
   ansible.builtin.pause:
     seconds: 30
 
+- name: DEBUG - List custom IRIS directory structure
+  ansible.builtin.shell: "ls -R /opt/dfir-iris-custom"
+  register: iris_files
+
+- name: DEBUG - Show files
+  ansible.builtin.debug:
+    var: iris_files.stdout_lines
+
 - name: Create or get DFIR-IRIS API key for admin
   community.docker.docker_container_exec:
     container: iris_app
