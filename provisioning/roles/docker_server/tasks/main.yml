@@ -179,7 +179,7 @@
   community.docker.docker_compose_v2:
     project_src: "/opt/misp-docker"
     state: present
-    build: always
+#    build: always
   register: misp_output
 
 - name: Deploy Portainer
