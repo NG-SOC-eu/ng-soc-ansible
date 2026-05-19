@@ -30,3 +30,24 @@
     - role: sandbox-logging
       slf_destination_port: '{% if hostvars["man"] is defined -%} 514 {%- else -%} 515 {%- endif %}'
       when: ansible_system == "Linux"
+
+- name: Add Wazuh FQDNs to /etc/hosts
+  hosts: all
+  become: yes
+  tasks:
+    - name: Add Wazuh FQDNs to /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        # This looks up the IP of 'ng-siem' from the inventory
+        line: "{{ hostvars['ng-siem']['ansible_ens4']['ipv4']['address'] }} {{ item }}"
+        #line: "10.0.16.60 {{ item }}"
+        regexp: ".*{{ item }}$"
+        state: present
+      loop:
+        - keycloak.kafka.mini.ngsiem.sph.gr
+        - misp.kafka.mini.ngsiem.sph.gr
+        - backend.mini.ngsiem.sph.gr
+        - navigator.mini.ngsiem.sph.gr
+        - iframe.mini.ngsiem.sph.gr
+        - wazuh-dashboard.kafka.mini.ngsiem.sph.gr
+        - app.mini.ngsiem.sph.gr
