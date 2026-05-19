@@ -270,8 +270,8 @@
 
 - name: Create or get DFIR-IRIS API key for admin
   community.docker.docker_container_exec:
-    container: iriswebapp_app
-    command: "python3 manage.py create_api_key --user admin@local.test" # Adjust email to your IRIS admin
+    container: iris_app
+    command: "python3 manage.py create_api_key --user admin@local.test" # Check to see if it's email of IRIS admin is correct
   register: iris_user_info
 
 - name: Save DFIR-IRIS API key fact
