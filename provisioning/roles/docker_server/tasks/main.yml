@@ -274,9 +274,7 @@
 
 - name: Create or get DFIR-IRIS API key for admin
   ansible.builtin.shell:
-    cmd: "docker exec iris_app flask iris create_api_key --user admin@local.test"
-  environment:
-    FLASK_APP: "app"
+    cmd: "docker exec iris_app /opt/venv/bin/flask iris create_api_key --user admin@local.test"
   register: iris_user_info
 
 - name: Save DFIR-IRIS API key fact
