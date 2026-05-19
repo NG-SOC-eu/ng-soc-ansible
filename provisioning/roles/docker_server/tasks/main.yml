@@ -270,7 +270,7 @@
 
 - name: Wait for CICMS (DFIR-IRIS) to initialize
   ansible.builtin.pause:
-  seconds: 30
+    seconds: 30
 
 - name: Create or get DFIR-IRIS API key for admin
   community.docker.docker_container_exec:
