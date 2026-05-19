@@ -268,6 +268,17 @@
     build: always
   register: dfir_iris_output
 
+- name: Create or get DFIR-IRIS API key for admin
+  community.docker.docker_container_exec:
+    container: iriswebapp_app
+    command: "python3 manage.py create_api_key --user admin@local.test" # Adjust email to your IRIS admin
+  register: iris_user_info
+
+- name: Save DFIR-IRIS API key fact
+  set_fact:
+    iris_api_key: "{{ iris_user_info.stdout | trim }}"
+    cacheable: yes
+
 - name: Show Docker Compose output
   ansible.builtin.debug:
     msg: |
@@ -278,6 +289,7 @@
       NG-SOAR: {{ NG_SOAR_output | default('No output captured') }}
       MISP: {{ misp_output | default('No output captured') }}
       Portainer: {{portainer_output | default('No output caprured') }}
+      DFIF_IRIS_API: {{iris_user_info | default('No output caprured') }}
 
 - name: Unmount SMB share
   ansible.builtin.mount:
