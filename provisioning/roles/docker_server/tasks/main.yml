@@ -254,7 +254,7 @@
     regexp: '^IRIS_MISP_VERIFY_CERT='
     line: "IRIS_MISP_VERIFY_CERT=false"
 
-- name: Inject MISP key into DFIR-IRIS .env
+- name: Inject MISP key into CICMS (DFIR-IRIS) .env
   lineinfile:
     path: /opt/dfir-iris-custom/.env
     regexp: '^IRIS_MISP_KEY='
