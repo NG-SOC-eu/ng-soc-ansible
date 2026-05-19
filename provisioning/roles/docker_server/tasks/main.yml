@@ -275,7 +275,7 @@
 - name: Create or get DFIR-IRIS API key for admin
   community.docker.docker_container_exec:
     container: iris_app
-    command: "/opt/venv/bin/flask iris create_api_key --user admin@local.test'" # Check to see if it's email of IRIS admin is correct
+    command: "docker exec iris_app /opt/venv/bin/flask iris create_api_key --user admin@local.test'" # Check to see if it's email of IRIS admin is correct
   register: iris_user_info
 
 - name: Save DFIR-IRIS API key fact
