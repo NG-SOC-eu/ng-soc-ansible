@@ -1,10 +1,27 @@
 ---
-- name: Add entries to /etc/hosts
+#- name: Add entries to /etc/hosts
+#  lineinfile:
+#    path: /etc/hosts
+#    line: "{{ item }}"
+#    state: present
+#  loop:
+#    - "10.0.19.147 app.ngsoc.gr"
+#    - "10.0.19.147 iframe.ngsoc.gr"
+#    - "10.0.19.147 app.pandorasph.gr"
+#
+- name: Add Wazuh FQDNs to /etc/hosts
   lineinfile:
     path: /etc/hosts
-    line: "{{ item }}"
+    # This looks up the IP of 'ng-siem' from the inventory
+    line: "{{ hostvars['ng-siem']['ansible_ens4']['ipv4']['address'] }} {{ item }}"
+    #line: "10.0.16.60 {{ item }}"
+    regexp: ".*{{ item }}$"
     state: present
   loop:
-    - "10.0.19.147 app.ngsoc.gr"
-    - "10.0.19.147 iframe.ngsoc.gr"
-    - "10.0.19.147 app.pandorasph.gr"
+    - keycloak.kafka.mini.ngsiem.sph.gr
+    - misp.kafka.mini.ngsiem.sph.gr
+    - backend.mini.ngsiem.sph.gr
+    - navigator.mini.ngsiem.sph.gr
+    - iframe.mini.ngsiem.sph.gr
+    - wazuh-dashboard.kafka.mini.ngsiem.sph.gr
+    - app.mini.ngsiem.sph.gr
