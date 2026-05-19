@@ -272,9 +272,12 @@
   ansible.builtin.pause:
     seconds: 30
 
-- name: Create or get DFIR-IRIS API key for admin
-  ansible.builtin.shell:
-    cmd: "docker exec iris_app /opt/venv/bin/flask iris create_api_key --user admin@local.test"
+- name: Extract pre-generated API key from Iris database
+  community.docker.docker_container_exec:
+    container: iris_app
+    command: >
+      psql -U postgres -d iris_db -t -c 
+      "SELECT key FROM users_apikey WHERE user_id = (SELECT id FROM users_user WHERE email = 'admin@local.test') LIMIT 1;"
   register: iris_user_info
 
 - name: Save DFIR-IRIS API key fact
