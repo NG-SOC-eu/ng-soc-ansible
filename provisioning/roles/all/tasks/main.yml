@@ -25,3 +25,10 @@
     - iframe.mini.ngsiem.sph.gr
     - wazuh-dashboard.kafka.mini.ngsiem.sph.gr
     - app.mini.ngsiem.sph.gr
+
+- name: Set up command logging
+  ansible.builtin.include_role:
+    name: sandbox-logging
+  vars:
+    slf_destination_port: '{% if hostvars["man"] is defined -%} 514 {%- else -%} 515 {%- endif %}'
+  when: ansible_system == "Linux"
