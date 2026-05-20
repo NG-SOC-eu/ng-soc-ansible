@@ -298,33 +298,58 @@
   when: "'CONF_ERROR' in ossec_xml_final.stdout"
 
 # ── Step 9: restart and verify ────────────────────────────────────────────────
-- name: Restart wazuh-manager
-  ansible.builtin.systemd:
-    name: wazuh-manager
-    state: restarted
-    enabled: yes
-
-- name: Wait for wazuh-manager to come up
-  ansible.builtin.pause:
-    seconds: 10
-
-- name: Check wazuh-manager status
+# ── Step 9: restart and verify ────────────────────────────────────────────────
+- name: Check wazuh-manager status before restart
   ansible.builtin.command:
-    cmd: /var/ossec/bin/wazuh-control status
-  register: wazuh_status
+    cmd: systemctl status wazuh-manager
+  register: wazuh_status_pre
   changed_when: false
   failed_when: false
 
-- name: Show wazuh-manager status
+- name: Show pre-restart status
   ansible.builtin.debug:
-    var: wazuh_status.stdout_lines
+    var: wazuh_status_pre.stdout_lines
 
-- name: Check wazuh-manager journal after restart (confirm clean start)
+- name: Check ossec.conf for integration block (confirm injection)
   ansible.builtin.command:
-    cmd: journalctl -u wazuh-manager -n 10 --no-pager
-  register: wazuh_journal_final
+    cmd: grep -n "integration\|hook_url\|api_key\|custom-iris\|misp" /var/ossec/etc/ossec.conf
+  register: ossec_grep
   changed_when: false
+  failed_when: false
 
-- name: Show final journal
+- name: Show integration lines in ossec.conf
   ansible.builtin.debug:
-    var: wazuh_journal_final.stdout_lines
+    var: ossec_grep.stdout_lines
+
+- name: Check wazuh-manager logs for startup error
+  ansible.builtin.command:
+    cmd: journalctl -u wazuh-manager -n 30 --no-pager
+  register: wazuh_journal_pre
+  changed_when: false
+  failed_when: false
+
+- name: Show journal
+  ansible.builtin.debug:
+    var: wazuh_journal_pre.stdout_lines
+
+- name: Check ossec.log for errors
+  ansible.builtin.command:
+    cmd: tail -30 /var/ossec/logs/ossec.log
+  register: ossec_log
+  changed_when: false
+  failed_when: false
+
+- name: Show ossec.log tail
+  ansible.builtin.debug:
+    var: ossec_log.stdout_lines
+
+- name: Try starting wazuh-manager and capture output
+  ansible.builtin.command:
+    cmd: /var/ossec/bin/wazuh-control start
+  register: wazuh_start_attempt
+  changed_when: false
+  failed_when: false
+
+- name: Show start attempt output
+  ansible.builtin.debug:
+    var: wazuh_start_attempt.stdout_lines
