@@ -123,70 +123,62 @@
       iris_api_key is not set in hostvars['docker-server'].
       Same checklist as above.
 
-# Remove later ___________________________________________________________________
-- name: Get wazuh-manager journal to diagnose startup failure
+# ── Step 1: show line 338 and surrounding context ─────────────────────────────
+ 
+- name: Show lines 330-345 of ossec.conf (around the XML junk)
   ansible.builtin.command:
-    cmd: journalctl -u wazuh-manager -n 50 --no-pager
-  register: wazuh_journal
+    cmd: sed -n '330,345p' /var/ossec/etc/ossec.conf
+  register: ossec_junk_lines
   changed_when: false
-  failed_when: false
-
-- name: Show wazuh-manager journal
+ 
+- name: Display junk area
   ansible.builtin.debug:
-    var: wazuh_journal.stdout_lines
-
-
-# ── Step 1: find out WHY wazuh-manager is failing ────────────────────────────
+    var: ossec_junk_lines.stdout_lines
  
-- name: Get wazuh-manager journal (last 30 lines)
-  ansible.builtin.command:
-    cmd: journalctl -u wazuh-manager -n 30 --no-pager
-  register: wazuh_journal
-  changed_when: false
-  failed_when: false
+# ── Step 2: fix quoted values in the pre-existing integration blocks ──────────
+# Remove surrounding double-quotes from inside XML tag values.
+# Pattern: >"something"< becomes >something<
  
-- name: Show wazuh-manager journal
-  ansible.builtin.debug:
-    var: wazuh_journal.stdout_lines
- 
-- name: Check ossec.conf syntax with wazuh-manager directly
-  ansible.builtin.command:
-    cmd: /var/ossec/bin/wazuh-manager --test-config
-  register: wazuh_config_test
-  changed_when: false
-  failed_when: false
-  ignore_errors: true
- 
-- name: Show ossec.conf test result
-  ansible.builtin.debug:
-    msg:
-      - "rc: {{ wazuh_config_test.rc }}"
-      - "stdout: {{ wazuh_config_test.stdout_lines | default([]) }}"
-      - "stderr: {{ wazuh_config_test.stderr_lines | default([]) }}"
- 
-# ── Step 2: check current ossec.conf for any broken/partial blocks ───────────
- 
-- name: Check if ossec.conf has any broken ANSIBLE markers from previous runs
+- name: Fix quoted XML values in pre-existing integrations
   ansible.builtin.shell: |
-    grep -n "ANSIBLE MANAGED\|BEGIN ANSIBLE\|END ANSIBLE" /var/ossec/etc/ossec.conf || echo "NO_MARKERS"
-  register: ossec_markers
-  changed_when: false
+    # Remove quotes that wrap values inside XML tags: >"value"< → >value<
+    sed -i 's|>\"\(.*\)\"<|>\1<|g' /var/ossec/etc/ossec.conf
+    echo "done"
+  register: fix_quotes
+  changed_when: true
  
-- name: Show existing markers in ossec.conf
+# ── Step 3: remove any duplicate or stray </ossec_config> tags ───────────────
+# Keep only the LAST </ossec_config> — remove all earlier ones, then
+# ensure exactly one exists at the end.
+ 
+- name: Fix duplicate </ossec_config> — keep only the last one
+  ansible.builtin.shell: |
+    python3 << 'EOF'
+    with open('/var/ossec/etc/ossec.conf', 'r') as f:
+        content = f.read()
+ 
+    tag = '</ossec_config>'
+    count = content.count(tag)
+    print(f"Found {count} closing tags")
+ 
+    if count > 1:
+        # Remove all occurrences, then append one at the very end
+        content = content.replace(tag, '')
+        content = content.rstrip() + '\n' + tag + '\n'
+        with open('/var/ossec/etc/ossec.conf', 'w') as f:
+            f.write(content)
+        print("Fixed: reduced to 1 closing tag")
+    else:
+        print("OK: exactly 1 closing tag, no change needed")
+    EOF
+  register: fix_closing_tag
+  changed_when: true
+ 
+- name: Show closing tag fix result
   ansible.builtin.debug:
-    var: ossec_markers.stdout_lines
+    var: fix_closing_tag.stdout_lines
  
-- name: Show tail of ossec.conf (last 40 lines)
-  ansible.builtin.command:
-    cmd: tail -40 /var/ossec/etc/ossec.conf
-  register: ossec_tail
-  changed_when: false
- 
-- name: Display ossec.conf tail
-  ansible.builtin.debug:
-    var: ossec_tail.stdout_lines
- 
-# ── Step 3: remove any broken/partial integration block from previous runs ───
+# ── Step 4: remove our ANSIBLE block if it survived somehow ──────────────────
  
 - name: Remove any previous ANSIBLE MANAGED integration block
   ansible.builtin.blockinfile:
@@ -195,9 +187,9 @@
     state: absent
   ignore_errors: true
  
-# ── Step 4: validate ossec.conf is clean before proceeding ───────────────────
+# ── Step 5: validate ossec.conf is now clean XML ─────────────────────────────
  
-- name: Validate ossec.conf XML is well-formed
+- name: Validate ossec.conf XML after cleanup
   ansible.builtin.shell: |
     python3 -c "
     import xml.etree.ElementTree as ET
@@ -207,22 +199,22 @@
     except ET.ParseError as e:
         print(f'XML_ERROR: {e}')
     "
-  register: ossec_xml_check
+  register: ossec_xml_clean
   changed_when: false
  
-- name: Show XML validation result
+- name: Show XML validation after cleanup
   ansible.builtin.debug:
-    var: ossec_xml_check.stdout
+    var: ossec_xml_clean.stdout
  
-- name: FAIL if ossec.conf is malformed XML
+- name: FAIL if ossec.conf still has XML errors after cleanup
   ansible.builtin.fail:
     msg: >
-      ossec.conf has XML errors: {{ ossec_xml_check.stdout }}
-      Fix the file manually before proceeding.
-      Check the tail output above for the broken section.
-  when: "'XML_ERROR' in ossec_xml_check.stdout"
+      ossec.conf still has XML errors after automated cleanup: {{ ossec_xml_clean.stdout }}
+      Show lines 330-345 output above for what's still broken.
+      Manual fix may be needed: check for stray text outside the root element.
+  when: "'XML_ERROR' in ossec_xml_clean.stdout"
  
-# ── Step 5: deploy custom-iris integration script ────────────────────────────
+# ── Step 6: deploy custom-iris integration script ────────────────────────────
  
 - name: Ensure Wazuh integrations directory exists
   ansible.builtin.file:
@@ -275,7 +267,7 @@
           sys.exit(1)
       sys.exit(0)
  
-# ── Step 6: inject integration block into ossec.conf ─────────────────────────
+# ── Step 7: inject our integration block ─────────────────────────────────────
  
 - name: Inject MISP and DFIR-IRIS integrations into ossec.conf
   ansible.builtin.blockinfile:
@@ -300,9 +292,9 @@
         <alert_format>json</alert_format>
       </integration>
  
-# ── Step 7: validate the updated ossec.conf before restarting ────────────────
+# ── Step 8: final XML validation ─────────────────────────────────────────────
  
-- name: Validate ossec.conf XML after injection
+- name: Validate ossec.conf after integration injection
   ansible.builtin.shell: |
     python3 -c "
     import xml.etree.ElementTree as ET
@@ -312,19 +304,19 @@
     except ET.ParseError as e:
         print(f'XML_ERROR: {e}')
     "
-  register: ossec_xml_check_after
+  register: ossec_xml_final
   changed_when: false
  
-- name: Show XML validation result after injection
+- name: Show final XML validation
   ansible.builtin.debug:
-    var: ossec_xml_check_after.stdout
+    var: ossec_xml_final.stdout
  
-- name: FAIL if ossec.conf is malformed after injection
+- name: FAIL if ossec.conf has XML errors after injection
   ansible.builtin.fail:
-    msg: "ossec.conf has XML errors after injection: {{ ossec_xml_check_after.stdout }}"
-  when: "'XML_ERROR' in ossec_xml_check_after.stdout"
+    msg: "ossec.conf has XML errors after injection: {{ ossec_xml_final.stdout }}"
+  when: "'XML_ERROR' in ossec_xml_final.stdout"
  
-# ── Step 8: restart wazuh-manager ────────────────────────────────────────────
+# ── Step 9: restart and verify ────────────────────────────────────────────────
  
 - name: Restart wazuh-manager
   ansible.builtin.systemd:
@@ -346,3 +338,13 @@
 - name: Show wazuh-manager status
   ansible.builtin.debug:
     var: wazuh_status.stdout_lines
+ 
+- name: Check wazuh-manager journal after restart (confirm clean start)
+  ansible.builtin.command:
+    cmd: journalctl -u wazuh-manager -n 10 --no-pager
+  register: wazuh_journal_final
+  changed_when: false
+ 
+- name: Show final journal
+  ansible.builtin.debug:
+    var: wazuh_journal_final.stdout_lines
