@@ -182,8 +182,6 @@
 - name: Validate ossec.conf with Wazuh's verify-agent-conf tool
   ansible.builtin.shell: |
     /var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1 || true
-    # Wazuh's tool returns 0 on success, non-zero on error.
-    # We capture output and check for known error strings.
     result=$(/var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1)
     if echo "$result" | grep -qi "error"; then
       echo "CONF_ERROR: $result"
