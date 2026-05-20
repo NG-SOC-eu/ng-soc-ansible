@@ -142,34 +142,21 @@
     echo "done"
   changed_when: true
 
-# ── Step 3: clean up duplicate integration blocks from previous runs ──────────
-- name: Remove any previous ANSIBLE MANAGED integration block
-  ansible.builtin.blockinfile:
-    path: /var/ossec/etc/ossec.conf
-    marker: "<!-- {mark} ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->"
-    state: absent
-
-# ── Step 4: fix ossec.conf structure (multi-root aware) ───────────────────────
-# ossec.conf is NOT standard XML — Wazuh allows multiple <ossec_config> blocks.
-# We must NOT collapse them into one. Instead:
-#   1. Remove any stray text/blank lines after the last </ossec_config>
-#   2. Remove any <ossec_config> blocks that are completely empty (artifact of bad blockinfile runs)
+# ── Step 3: strip stray content after last </ossec_config> ───────────────────
 - name: Strip any stray content after last closing tag
   ansible.builtin.shell: |
     python3 << 'EOF'
     with open('/var/ossec/etc/ossec.conf', 'r') as f:
         content = f.read()
-
     tag = '</ossec_config>'
     last_idx = content.rfind(tag)
     if last_idx == -1:
         print("ERROR: no closing tag found!")
     else:
-        # Keep everything up to and including the last closing tag
         trimmed = content[:last_idx + len(tag)].rstrip() + '\n'
         with open('/var/ossec/etc/ossec.conf', 'w') as f:
             f.write(trimmed)
-        print(f"Trimmed. Closing tags in result: {trimmed.count(tag)}")
+        print(f"Trimmed OK. Closing tags in result: {trimmed.count(tag)}")
     EOF
   register: fix_structure
   changed_when: true
@@ -178,16 +165,18 @@
   ansible.builtin.debug:
     var: fix_structure.stdout_lines
 
-# ── Step 5: validate using Wazuh's own tool (not ET.parse) ───────────────────
+# ── Step 4: validate using Wazuh's own tool ───────────────────────────────────
+# verify-agent-conf resolves paths relative to /var/ossec/ — pass relative path
 - name: Validate ossec.conf with Wazuh's verify-agent-conf tool
   ansible.builtin.shell: |
-    /var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1 || true
-    result=$(/var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1)
-    if echo "$result" | grep -qi "error"; then
+    result=$(/var/ossec/bin/verify-agent-conf -f etc/ossec.conf 2>&1)
+    if echo "$result" | grep -qi "error\|critical"; then
       echo "CONF_ERROR: $result"
     else
       echo "CONF_OK"
     fi
+  args:
+    chdir: /var/ossec
   register: ossec_verify
   changed_when: false
 
