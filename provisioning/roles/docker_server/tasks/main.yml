@@ -269,30 +269,101 @@
     build: always
   register: dfir_iris_output
 
-# ── Wait for iris_app healthcheck to pass, not just a fixed sleep (curl http://localhost:8000) ─────────────
+# ── Wait for iris_app to be healthy first ─────────────────────────────────────
+ 
 - name: Wait for iris_app container to become healthy
   community.docker.docker_container_info:
     name: iris_app
   register: iris_app_info
   until: iris_app_info.container.State.Health.Status == "healthy"
-  retries: 36        # 36 × 5s = 3 minutes max
+  retries: 36
   delay: 5
-  ignore_errors: true
-
+ 
 - name: Show iris_app health status
   ansible.builtin.debug:
-    msg: "iris_app health: {{ iris_app_info.container.State.Health.Status | default('unknown') }}"
-
-# ── Also wait for iris_nginx (port 8083) to accept connections ────────────────
-- name: Wait for DFIR-IRIS nginx port 8083 to accept connections
+    msg: "iris_app health: {{ iris_app_info.container.State.Health.Status }}"
+ 
+# ── Diagnose nginx container before waiting on its port ──────────────────────
+ 
+- name: Get iris_nginx container info
+  community.docker.docker_container_info:
+    name: iris_nginx
+  register: iris_nginx_info
+ 
+- name: Show iris_nginx state
+  ansible.builtin.debug:
+    msg:
+      - "iris_nginx State:    {{ iris_nginx_info.container.State.Status }}"
+      - "iris_nginx ExitCode: {{ iris_nginx_info.container.State.ExitCode }}"
+      - "iris_nginx Running:  {{ iris_nginx_info.container.State.Running }}"
+ 
+- name: Get iris_nginx logs (last 30 lines)
+  ansible.builtin.command:
+    cmd: docker logs --tail 30 iris_nginx
+  register: iris_nginx_logs
+  changed_when: false
+  ignore_errors: true
+ 
+- name: Show iris_nginx logs
+  ansible.builtin.debug:
+    msg: "{{ iris_nginx_logs.stderr_lines + iris_nginx_logs.stdout_lines }}"
+ 
+# ── Restart nginx if it crashed (ExitCode != 0 or not running) ───────────────
+# nginx often fails on first start because iris_app wasn't ready yet.
+# Now that iris_app is healthy, a restart fixes it.
+ 
+- name: Restart iris_nginx if it is not running
+  ansible.builtin.command:
+    cmd: docker restart iris_nginx
+  when: >
+    not iris_nginx_info.container.State.Running or
+    iris_nginx_info.container.State.ExitCode != 0
+  register: nginx_restart
+  ignore_errors: true
+ 
+- name: Wait 5 seconds after nginx restart
+  ansible.builtin.pause:
+    seconds: 5
+  when: nginx_restart is not skipped
+ 
+- name: Get iris_nginx info after restart
+  community.docker.docker_container_info:
+    name: iris_nginx
+  register: iris_nginx_info_after
+  when: nginx_restart is not skipped
+ 
+- name: Show iris_nginx state after restart
+  ansible.builtin.debug:
+    msg:
+      - "iris_nginx State after restart: {{ iris_nginx_info_after.container.State.Status | default('n/a') }}"
+      - "iris_nginx ExitCode:            {{ iris_nginx_info_after.container.State.ExitCode | default('n/a') }}"
+  when: nginx_restart is not skipped
+ 
+- name: Get iris_nginx logs after restart
+  ansible.builtin.command:
+    cmd: docker logs --tail 20 iris_nginx
+  register: iris_nginx_logs_after
+  changed_when: false
+  ignore_errors: true
+  when: nginx_restart is not skipped
+ 
+- name: Show iris_nginx logs after restart
+  ansible.builtin.debug:
+    msg: "{{ iris_nginx_logs_after.stderr_lines + iris_nginx_logs_after.stdout_lines }}"
+  when: nginx_restart is not skipped
+ 
+# ── Now wait for port 8083 ────────────────────────────────────────────────────
+ 
+- name: Wait for DFIR-IRIS nginx port 8083
   ansible.builtin.wait_for:
     host: 127.0.0.1
     port: 8083
     state: started
-    delay: 3
-    timeout: 120
-
-# ── Test the hardcoded API key ───────────────────────────────────────
+    delay: 2
+    timeout: 60
+ 
+# ── Test hardcoded API key ────────────────────────────────────────────────────
+ 
 - name: Test known DFIR-IRIS API key against live instance
   ansible.builtin.uri:
     url: "http://localhost:8083/api/v1/users/me"
@@ -305,30 +376,29 @@
     timeout: 15
   register: iris_key_test
   ignore_errors: true
-
+ 
 - name: Debug key test result
   ansible.builtin.debug:
     msg: >
       DFIR-IRIS key test HTTP status: {{ iris_key_test.status | default('UNREACHABLE') }}.
       {% if iris_key_test.status | default(0) == 200 %}
-        Hardcoded key is VALID — will use it.
+        ✅ Hardcoded key is VALID — will use it.
       {% elif iris_key_test.status | default(0) in [401, 403] %}
-        Hardcoded key rejected ({{ iris_key_test.status }}) — will extract from DB.
+        ❌ Hardcoded key rejected ({{ iris_key_test.status }}) — will extract from DB.
       {% else %}
-        Port unreachable ({{ iris_key_test.status }}) — port wait may have failed.
+        ❌ Still unreachable ({{ iris_key_test.msg | default('') }}).
       {% endif %}
-
-# ── Inspect the user table columns (only if key test failed) ──────────
+ 
+# ── Inspect user table columns (only if key test failed) ─────────────────────
+ 
 - name: Inspect columns of the user table
   community.docker.docker_container_exec:
     container: iris_db
-    command: >
-      psql -U postgres -d iris_db -t -A -c
-      "\d \"user\""
+    command: psql -U postgres -d iris_db -t -A -c "\d \"user\""
   register: iris_user_table_cols
   when: iris_key_test.status | default(0) != 200
   ignore_errors: true
-
+ 
 - name: Show user table columns
   ansible.builtin.debug:
     var: iris_user_table_cols.stdout_lines
@@ -336,41 +406,39 @@
     - iris_key_test.status | default(0) != 200
     - iris_user_table_cols is defined
     - not (iris_user_table_cols.skipped | default(false))
-
-# ── Extract API key from the user table ───────────────────────────────
+ 
+# ── Extract key from DB ───────────────────────────────────────────────────────
+ 
 - name: Extract DFIR-IRIS API key from DB (column api_key)
   community.docker.docker_container_exec:
     container: iris_db
     command: >
       psql -U postgres -d iris_db -t -A -c
-      "SELECT api_key FROM \"user\"
-        WHERE name = 'administrator'
-        LIMIT 1;"
+      "SELECT api_key FROM \"user\" WHERE name = 'administrator' LIMIT 1;"
   register: iris_db_key_api_key
   when: iris_key_test.status | default(0) != 200
   ignore_errors: true
-
+ 
 - name: Extract DFIR-IRIS API key from DB (column auth_key fallback)
   community.docker.docker_container_exec:
     container: iris_db
     command: >
       psql -U postgres -d iris_db -t -A -c
-      "SELECT auth_key FROM \"user\"
-        WHERE name = 'administrator'
-        LIMIT 1;"
+      "SELECT auth_key FROM \"user\" WHERE name = 'administrator' LIMIT 1;"
   register: iris_db_key_auth_key
   when:
     - iris_key_test.status | default(0) != 200
     - iris_db_key_api_key.stdout is not defined or iris_db_key_api_key.stdout | trim == ''
   ignore_errors: true
-
-# ── Step 4: resolve and save the winning key ──────────────────────────────────
+ 
+# ── Resolve winning key ───────────────────────────────────────────────────────
+ 
 - name: Set iris_api_key — from hardcoded key (verified working)
   ansible.builtin.set_fact:
     iris_api_key: "c-8vTC8nDC6iggE9f0jfVS1r6BEWUpAvHiMpT16bDJN1YqEIYPAI6ldxiwEMKx3w7n4cxTml4_X-RKol-_xUuQ"
     cacheable: yes
   when: iris_key_test.status | default(0) == 200
-
+ 
 - name: Set iris_api_key — from DB column api_key
   ansible.builtin.set_fact:
     iris_api_key: "{{ iris_db_key_api_key.stdout | trim }}"
@@ -380,7 +448,7 @@
     - iris_db_key_api_key is defined
     - iris_db_key_api_key.stdout is defined
     - iris_db_key_api_key.stdout | trim != ''
-
+ 
 - name: Set iris_api_key — from DB column auth_key (fallback)
   ansible.builtin.set_fact:
     iris_api_key: "{{ iris_db_key_auth_key.stdout | trim }}"
@@ -391,20 +459,20 @@
     - iris_db_key_auth_key is defined
     - iris_db_key_auth_key.stdout is defined
     - iris_db_key_auth_key.stdout | trim != ''
-
+ 
 - name: FAIL — could not obtain a valid DFIR-IRIS API key
   ansible.builtin.fail:
     msg: >
       Could not obtain a working DFIR-IRIS API key.
       Hardcoded key test: {{ iris_key_test.status | default('UNREACHABLE') }}.
-      DB api_key col: "{{ iris_db_key_api_key.stdout | default('(skipped)') }}".
+      DB api_key col:  "{{ iris_db_key_api_key.stdout | default('(skipped)') }}".
       DB auth_key col: "{{ iris_db_key_auth_key.stdout | default('(skipped)') }}".
-      Check iris_user_table_cols output above and pick the right column name.
+      Check iris_user_table_cols debug output and pick the right column name.
   when: iris_api_key is not defined or iris_api_key | trim == ''
-
+ 
 - name: Confirm final IRIS API key (first 10 chars only)
   ansible.builtin.debug:
-    msg: "iris_api_key resolved: {{ iris_api_key[:10] }}... ({{ iris_api_key | length }} chars)"
+    msg: "✅ iris_api_key resolved: {{ iris_api_key[:10] }}... ({{ iris_api_key | length }} chars)"
 
 
 - name: Show Docker Compose output
