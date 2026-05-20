@@ -262,6 +262,24 @@
     line: "IRIS_MISP_KEY={{ misp_api_key }}"
     state: present
 
+# ── Fix the upstream server name in .env BEFORE building ─────────────────────
+ 
+- name: Fix IRIS_UPSTREAM_SERVER to match actual container/service name
+  ansible.builtin.lineinfile:
+    path: /opt/dfir-iris-custom/.env
+    regexp: '^IRIS_UPSTREAM_SERVER='
+    line: "IRIS_UPSTREAM_SERVER=iris_app"
+    state: present
+ 
+- name: Verify IRIS_UPSTREAM_PORT is set to 8000
+  ansible.builtin.lineinfile:
+    path: /opt/dfir-iris-custom/.env
+    regexp: '^IRIS_UPSTREAM_PORT='
+    line: "IRIS_UPSTREAM_PORT=8000"
+    state: present
+
+# ── Build and run ─────────────────────────────────────────────────────────────
+
 - name: Build and run DFIR-IRIS
   community.docker.docker_compose_v2:
     project_src: "/opt/dfir-iris-custom"
@@ -269,7 +287,7 @@
     build: always
   register: dfir_iris_output
 
-# ── Wait for iris_app to be healthy first ─────────────────────────────────────
+# ── Wait for iris_app healthy ─────────────────────────────────────────────────
  
 - name: Wait for iris_app container to become healthy
   community.docker.docker_container_info:
@@ -283,23 +301,31 @@
   ansible.builtin.debug:
     msg: "iris_app health: {{ iris_app_info.container.State.Health.Status }}"
  
-# ── Diagnose nginx container before waiting on its port ──────────────────────
+# ── Check nginx state and restart if needed ───────────────────────────────────
+# Even with the correct upstream, nginx may have already exited from the
+# failed first start. Restart it now that iris_app is healthy.
  
-- name: Get iris_nginx container info
+- name: Get iris_nginx container state
   community.docker.docker_container_info:
     name: iris_nginx
   register: iris_nginx_info
  
-- name: Show iris_nginx state
-  ansible.builtin.debug:
-    msg:
-      - "iris_nginx State:    {{ iris_nginx_info.container.State.Status }}"
-      - "iris_nginx ExitCode: {{ iris_nginx_info.container.State.ExitCode }}"
-      - "iris_nginx Running:  {{ iris_nginx_info.container.State.Running }}"
- 
-- name: Get iris_nginx logs (last 30 lines)
+- name: Restart iris_nginx (it may have exited on first start)
   ansible.builtin.command:
-    cmd: docker logs --tail 30 iris_nginx
+    cmd: docker restart iris_nginx
+  when: >
+    not iris_nginx_info.container.State.Running or
+    iris_nginx_info.container.State.ExitCode != 0
+  register: nginx_restart_result
+ 
+- name: Wait for iris_nginx to stabilise after restart
+  ansible.builtin.pause:
+    seconds: 8
+  when: nginx_restart_result is not skipped
+ 
+- name: Get iris_nginx logs to confirm it started cleanly
+  ansible.builtin.command:
+    cmd: docker logs --tail 10 iris_nginx
   register: iris_nginx_logs
   changed_when: false
   ignore_errors: true
@@ -308,51 +334,7 @@
   ansible.builtin.debug:
     msg: "{{ iris_nginx_logs.stderr_lines + iris_nginx_logs.stdout_lines }}"
  
-# ── Restart nginx if it crashed (ExitCode != 0 or not running) ───────────────
-# nginx often fails on first start because iris_app wasn't ready yet.
-# Now that iris_app is healthy, a restart fixes it.
- 
-- name: Restart iris_nginx if it is not running
-  ansible.builtin.command:
-    cmd: docker restart iris_nginx
-  when: >
-    not iris_nginx_info.container.State.Running or
-    iris_nginx_info.container.State.ExitCode != 0
-  register: nginx_restart
-  ignore_errors: true
- 
-- name: Wait 5 seconds after nginx restart
-  ansible.builtin.pause:
-    seconds: 5
-  when: nginx_restart is not skipped
- 
-- name: Get iris_nginx info after restart
-  community.docker.docker_container_info:
-    name: iris_nginx
-  register: iris_nginx_info_after
-  when: nginx_restart is not skipped
- 
-- name: Show iris_nginx state after restart
-  ansible.builtin.debug:
-    msg:
-      - "iris_nginx State after restart: {{ iris_nginx_info_after.container.State.Status | default('n/a') }}"
-      - "iris_nginx ExitCode:            {{ iris_nginx_info_after.container.State.ExitCode | default('n/a') }}"
-  when: nginx_restart is not skipped
- 
-- name: Get iris_nginx logs after restart
-  ansible.builtin.command:
-    cmd: docker logs --tail 20 iris_nginx
-  register: iris_nginx_logs_after
-  changed_when: false
-  ignore_errors: true
-  when: nginx_restart is not skipped
- 
-- name: Show iris_nginx logs after restart
-  ansible.builtin.debug:
-    msg: "{{ iris_nginx_logs_after.stderr_lines + iris_nginx_logs_after.stdout_lines }}"
-  when: nginx_restart is not skipped
- 
-# ── Now wait for port 8083 ────────────────────────────────────────────────────
+# ── Wait for port 8083 ────────────────────────────────────────────────────────
  
 - name: Wait for DFIR-IRIS nginx port 8083
   ansible.builtin.wait_for:
@@ -386,10 +368,10 @@
       {% elif iris_key_test.status | default(0) in [401, 403] %}
         ❌ Hardcoded key rejected ({{ iris_key_test.status }}) — will extract from DB.
       {% else %}
-        ❌ Still unreachable ({{ iris_key_test.msg | default('') }}).
+        ❌ Still unreachable — check nginx logs above.
       {% endif %}
  
-# ── Inspect user table columns (only if key test failed) ─────────────────────
+# ── Extract key from DB if hardcoded key was rejected ────────────────────────
  
 - name: Inspect columns of the user table
   community.docker.docker_container_exec:
@@ -406,8 +388,6 @@
     - iris_key_test.status | default(0) != 200
     - iris_user_table_cols is defined
     - not (iris_user_table_cols.skipped | default(false))
- 
-# ── Extract key from DB ───────────────────────────────────────────────────────
  
 - name: Extract DFIR-IRIS API key from DB (column api_key)
   community.docker.docker_container_exec:
@@ -431,7 +411,7 @@
     - iris_db_key_api_key.stdout is not defined or iris_db_key_api_key.stdout | trim == ''
   ignore_errors: true
  
-# ── Resolve winning key ───────────────────────────────────────────────────────
+# ── Resolve and save key ──────────────────────────────────────────────────────
  
 - name: Set iris_api_key — from hardcoded key (verified working)
   ansible.builtin.set_fact:
@@ -473,6 +453,7 @@
 - name: Confirm final IRIS API key (first 10 chars only)
   ansible.builtin.debug:
     msg: "✅ iris_api_key resolved: {{ iris_api_key[:10] }}... ({{ iris_api_key | length }} chars)"
+
 
 
 - name: Show Docker Compose output
