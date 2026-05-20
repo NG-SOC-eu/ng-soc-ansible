@@ -250,6 +250,14 @@
           sys.exit(1)
       sys.exit(0)
 
+- name: Create custom-iris.py symlink for Wazuh integratord
+  ansible.builtin.file:
+    src: /var/ossec/integrations/custom-iris
+    dest: /var/ossec/integrations/custom-iris.py
+    state: link
+    owner: root
+    group: wazuh
+
 # ── Step 7: inject our integration block ──────────────────────────────────────
 - name: Inject MISP and DFIR-IRIS integrations into ossec.conf
   ansible.builtin.blockinfile:
@@ -298,7 +306,24 @@
   when: "'CONF_ERROR' in ossec_xml_final.stdout"
 
 # ── Step 9: restart and verify ────────────────────────────────────────────────
-# ── Step 9: restart and verify ────────────────────────────────────────────────
+- name: Fix ossec.conf permissions after Python write
+  ansible.builtin.file:
+    path: /var/ossec/etc/ossec.conf
+    owner: root
+    group: wazuh
+    mode: '0660'
+
+- name: Check if syslog integration is enabled in ossec.conf
+  ansible.builtin.command:
+    cmd: grep -n "csyslog\|syslog" /var/ossec/etc/ossec.conf
+  register: syslog_check
+  changed_when: false
+  failed_when: false
+
+- name: Show syslog config
+  ansible.builtin.debug:
+    var: syslog_check.stdout_lines
+
 - name: Check wazuh-manager status before restart
   ansible.builtin.command:
     cmd: systemctl status wazuh-manager
