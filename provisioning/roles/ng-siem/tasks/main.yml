@@ -354,7 +354,7 @@
     wazuh_mode == "native" or
     (wazuh_mode == "docker" and ossec_conf_find.files | default([]) | length > 0)
 
- - name: Inject integrations into ossec.conf inside container (docker, no bind mount)
+- name: Inject integrations into ossec.conf inside container (docker, no bind mount)
   ansible.builtin.shell: |
     docker exec {{ wazuh_container }} sh -c "
     grep -q 'ANSIBLE MANAGED CYBERRANGE' /var/ossec/etc/ossec.conf && exit 0
