@@ -103,7 +103,7 @@
 
 
 ## API Key Integrations ───────────────────────────────────────────────────────────────────
-# Verify facts arrived from docker-server role ────────────────────────────────────
+# ── Verify facts arrived from docker-server role ──────────────────────────────
 - name: Assert MISP API key was passed from docker-server role
   ansible.builtin.assert:
     that:
@@ -123,26 +123,32 @@
       iris_api_key is not set in hostvars['docker-server'].
       Same checklist as above.
 
-# ── Step 1: show line 338 and surrounding context ─────────────────────────────
- 
+# ── Step 1: show surrounding context for debugging ────────────────────────────
 - name: Show lines 330-345 of ossec.conf (around the XML junk)
   ansible.builtin.command:
     cmd: sed -n '330,345p' /var/ossec/etc/ossec.conf
   register: ossec_junk_lines
   changed_when: false
- 
+
 - name: Display junk area
   ansible.builtin.debug:
     var: ossec_junk_lines.stdout_lines
- 
-# ── Step 2: fix quoted values ─────────────────────────────────────────────────
+
+# ── Step 2: fix quoted values in pre-existing integration blocks ──────────────
 - name: Fix quoted XML values in pre-existing integrations
   ansible.builtin.shell: |
     sed -i 's|>"\(.*\)"<|>\1<|g' /var/ossec/etc/ossec.conf
     echo "done"
   changed_when: true
 
-# ── Step 3: strip stray content after last </ossec_config> ───────────────────
+# ── Step 3: remove any previous ANSIBLE MANAGED integration block ─────────────
+- name: Remove any previous ANSIBLE MANAGED integration block
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->"
+    state: absent
+
+# ── Step 4: strip stray content after last </ossec_config> ───────────────────
 - name: Strip any stray content after last closing tag
   ansible.builtin.shell: |
     python3 << 'EOF'
@@ -165,8 +171,7 @@
   ansible.builtin.debug:
     var: fix_structure.stdout_lines
 
-# ── Step 4: validate using Wazuh's own tool ───────────────────────────────────
-# verify-agent-conf resolves paths relative to /var/ossec/ — pass relative path
+# ── Step 5: diagnose and validate ossec.conf ──────────────────────────────────
 - name: Diagnose ossec.conf accessibility and verify-agent-conf usage
   ansible.builtin.shell: |
     echo "=== File exists and perms ==="
@@ -193,8 +198,7 @@
   ansible.builtin.debug:
     var: ossec_diag.stdout_lines
 
-# ── Step 6: deploy custom-iris integration script ────────────────────────────
- 
+# ── Step 6: deploy custom-iris integration script ─────────────────────────────
 - name: Ensure Wazuh integrations directory exists
   ansible.builtin.file:
     path: /var/ossec/integrations
@@ -202,7 +206,7 @@
     owner: root
     group: wazuh
     mode: '0750'
- 
+
 - name: Deploy custom-iris integration script
   ansible.builtin.copy:
     dest: /var/ossec/integrations/custom-iris
@@ -245,9 +249,8 @@
           print(f"ERROR: {e}", file=sys.stderr)
           sys.exit(1)
       sys.exit(0)
- 
-# ── Step 7: inject our integration block ─────────────────────────────────────
- 
+
+# ── Step 7: inject our integration block ──────────────────────────────────────
 - name: Inject MISP and DFIR-IRIS integrations into ossec.conf
   ansible.builtin.blockinfile:
     path: /var/ossec/etc/ossec.conf
@@ -261,7 +264,7 @@
         <url>https://10.0.12.60:8443</url>
         <alert_format>json</alert_format>
       </integration>
- 
+
       <!-- Integration with CICMS (DFIR-IRIS) -->
       <integration>
         <name>custom-iris</name>
@@ -270,17 +273,18 @@
         <level>7</level>
         <alert_format>json</alert_format>
       </integration>
- 
-# ── Step 8: final XML validation ─────────────────────────────────────────────
- 
+
+# ── Step 8: final validation ──────────────────────────────────────────────────
 - name: Validate ossec.conf after integration injection
   ansible.builtin.shell: |
-    result=$(/var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1)
-    if echo "$result" | grep -qi "error"; then
+    result=$(/var/ossec/bin/verify-agent-conf 2>&1)
+    if echo "$result" | grep -qi "error\|critical"; then
       echo "CONF_ERROR: $result"
     else
       echo "CONF_OK"
     fi
+  args:
+    chdir: /var/ossec
   register: ossec_xml_final
   changed_when: false
 
@@ -292,36 +296,35 @@
   ansible.builtin.fail:
     msg: "ossec.conf failed after injection: {{ ossec_xml_final.stdout }}"
   when: "'CONF_ERROR' in ossec_xml_final.stdout"
- 
+
 # ── Step 9: restart and verify ────────────────────────────────────────────────
- 
 - name: Restart wazuh-manager
   ansible.builtin.systemd:
     name: wazuh-manager
     state: restarted
     enabled: yes
- 
+
 - name: Wait for wazuh-manager to come up
   ansible.builtin.pause:
     seconds: 10
- 
+
 - name: Check wazuh-manager status
   ansible.builtin.command:
     cmd: /var/ossec/bin/wazuh-control status
   register: wazuh_status
   changed_when: false
   failed_when: false
- 
+
 - name: Show wazuh-manager status
   ansible.builtin.debug:
     var: wazuh_status.stdout_lines
- 
+
 - name: Check wazuh-manager journal after restart (confirm clean start)
   ansible.builtin.command:
     cmd: journalctl -u wazuh-manager -n 10 --no-pager
   register: wazuh_journal_final
   changed_when: false
- 
+
 - name: Show final journal
   ansible.builtin.debug:
     var: wazuh_journal_final.stdout_lines
