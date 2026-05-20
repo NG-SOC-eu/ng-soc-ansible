@@ -122,122 +122,108 @@
       iris_api_key is not set in hostvars['docker-server'].
       Same checklist as above.
 
-# ── Step 1: discover how Wazuh is running ────────────────────────────────────
+# ── Step 1: find out WHY wazuh-manager is failing ────────────────────────────
  
-- name: Check if wazuh-manager systemd service exists
-  ansible.builtin.command: systemctl status wazuh-manager
-  register: wazuh_systemd
+- name: Get wazuh-manager journal (last 30 lines)
+  ansible.builtin.command:
+    cmd: journalctl -u wazuh-manager -n 30 --no-pager
+  register: wazuh_journal
   changed_when: false
   failed_when: false
  
-- name: Check if Wazuh is running in Docker
-  ansible.builtin.command: docker ps --filter "name=wazuh" --format "{{ '{{' }}.Names{{ '}}' }}"
-  register: wazuh_docker_containers
+- name: Show wazuh-manager journal
+  ansible.builtin.debug:
+    var: wazuh_journal.stdout_lines
+ 
+- name: Check ossec.conf syntax with wazuh-manager directly
+  ansible.builtin.command:
+    cmd: /var/ossec/bin/wazuh-manager --test-config
+  register: wazuh_config_test
   changed_when: false
   failed_when: false
+  ignore_errors: true
  
-- name: Check if Wazuh manager container exists (common names)
-  ansible.builtin.command: >
-    docker ps -a --format "{{ '{{' }}.Names{{ '}}' }}"
-  register: all_docker_containers
-  changed_when: false
-  failed_when: false
- 
-- name: Show Wazuh discovery results
+- name: Show ossec.conf test result
   ansible.builtin.debug:
     msg:
-      - "systemd wazuh-manager rc: {{ wazuh_systemd.rc }}"
-      - "Docker containers with 'wazuh' in name: {{ wazuh_docker_containers.stdout_lines }}"
-      - "All Docker containers: {{ all_docker_containers.stdout_lines }}"
+      - "rc: {{ wazuh_config_test.rc }}"
+      - "stdout: {{ wazuh_config_test.stdout_lines | default([]) }}"
+      - "stderr: {{ wazuh_config_test.stderr_lines | default([]) }}"
  
-# ── Step 2: find ossec.conf path ─────────────────────────────────────────────
-# Native install: /var/ossec/etc/ossec.conf
-# Docker install: could be a bind mount on the host, or inside the container
+# ── Step 2: check current ossec.conf for any broken/partial blocks ───────────
  
-- name: Check if native ossec.conf exists
-  ansible.builtin.stat:
+- name: Check if ossec.conf has any broken ANSIBLE markers from previous runs
+  ansible.builtin.shell: |
+    grep -n "ANSIBLE MANAGED\|BEGIN ANSIBLE\|END ANSIBLE" /var/ossec/etc/ossec.conf || echo "NO_MARKERS"
+  register: ossec_markers
+  changed_when: false
+ 
+- name: Show existing markers in ossec.conf
+  ansible.builtin.debug:
+    var: ossec_markers.stdout_lines
+ 
+- name: Show tail of ossec.conf (last 40 lines)
+  ansible.builtin.command:
+    cmd: tail -40 /var/ossec/etc/ossec.conf
+  register: ossec_tail
+  changed_when: false
+ 
+- name: Display ossec.conf tail
+  ansible.builtin.debug:
+    var: ossec_tail.stdout_lines
+ 
+# ── Step 3: remove any broken/partial integration block from previous runs ───
+ 
+- name: Remove any previous ANSIBLE MANAGED integration block
+  ansible.builtin.blockinfile:
     path: /var/ossec/etc/ossec.conf
-  register: ossec_conf_native
+    marker: "<!-- {mark} ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->"
+    state: absent
+  ignore_errors: true
  
-- name: Find ossec.conf on host (bind mount from docker)
-  ansible.builtin.find:
-    paths:
-      - /opt/wazuh
-      - /opt/wazuh-docker
-      - /home
-      - /root
-      - /etc/wazuh
-    patterns: "ossec.conf"
-    recurse: yes
-  register: ossec_conf_find
-  failed_when: false
+# ── Step 4: validate ossec.conf is clean before proceeding ───────────────────
  
-- name: Show ossec.conf locations
+- name: Validate ossec.conf XML is well-formed
+  ansible.builtin.shell: |
+    python3 -c "
+    import xml.etree.ElementTree as ET
+    try:
+        ET.parse('/var/ossec/etc/ossec.conf')
+        print('XML_OK')
+    except ET.ParseError as e:
+        print(f'XML_ERROR: {e}')
+    "
+  register: ossec_xml_check
+  changed_when: false
+ 
+- name: Show XML validation result
   ansible.builtin.debug:
-    msg:
-      - "Native /var/ossec/etc/ossec.conf exists: {{ ossec_conf_native.stat.exists }}"
-      - "Other locations found: {{ ossec_conf_find.files | map(attribute='path') | list }}"
+    var: ossec_xml_check.stdout
  
-# ── Step 3: set facts based on discovery ─────────────────────────────────────
- 
-- name: Set wazuh_mode to native
-  ansible.builtin.set_fact:
-    wazuh_mode: "native"
-    wazuh_ossec_conf: "/var/ossec/etc/ossec.conf"
-    wazuh_integrations_dir: "/var/ossec/integrations"
-  when: ossec_conf_native.stat.exists and wazuh_systemd.rc == 0
- 
-- name: Set wazuh_mode to docker
-  ansible.builtin.set_fact:
-    wazuh_mode: "docker"
-    wazuh_container: "{{ wazuh_docker_containers.stdout_lines | select('match', '.*wazuh.*manager.*|.*wazuh.*') | first | default(wazuh_docker_containers.stdout_lines | first | default('wazuh.manager')) }}"
-    wazuh_ossec_conf: "{{ ossec_conf_find.files[0].path if ossec_conf_find.files | length > 0 else '/var/ossec/etc/ossec.conf' }}"
-  when: >
-    not ossec_conf_native.stat.exists or wazuh_systemd.rc != 0
- 
-- name: Show resolved Wazuh mode
-  ansible.builtin.debug:
-    msg:
-      - "Wazuh mode: {{ wazuh_mode }}"
-      - "ossec.conf path: {{ wazuh_ossec_conf }}"
-      - "Container (if docker): {{ wazuh_container | default('n/a') }}"
- 
-# ── Step 4: find integrations directory ──────────────────────────────────────
- 
-- name: Find Wazuh integrations directory (docker bind mount)
-  ansible.builtin.find:
-    paths:
-      - /opt/wazuh
-      - /opt/wazuh-docker
-      - /home
-      - /root
-    patterns: "integrations"
-    file_type: directory
-    recurse: yes
-  register: integrations_dir_find
-  when: wazuh_mode == "docker"
-  failed_when: false
- 
-- name: Set integrations dir for docker mode
-  ansible.builtin.set_fact:
-    wazuh_integrations_dir: "{{ integrations_dir_find.files[0].path if (integrations_dir_find.files | default([]) | length > 0) else '/var/ossec/integrations' }}"
-  when: wazuh_mode == "docker"
+- name: FAIL if ossec.conf is malformed XML
+  ansible.builtin.fail:
+    msg: >
+      ossec.conf has XML errors: {{ ossec_xml_check.stdout }}
+      Fix the file manually before proceeding.
+      Check the tail output above for the broken section.
+  when: "'XML_ERROR' in ossec_xml_check.stdout"
  
 # ── Step 5: deploy custom-iris integration script ────────────────────────────
  
-- name: Ensure integrations directory exists on host
+- name: Ensure Wazuh integrations directory exists
   ansible.builtin.file:
-    path: "{{ wazuh_integrations_dir }}"
+    path: /var/ossec/integrations
     state: directory
-    mode: '0755'
-  when: wazuh_mode == "native"
- 
-- name: Deploy custom-iris script (native mode - to host filesystem)
-  ansible.builtin.copy:
-    dest: "{{ wazuh_integrations_dir }}/custom-iris"
-    mode: '0750'
     owner: root
     group: wazuh
+    mode: '0750'
+ 
+- name: Deploy custom-iris integration script
+  ansible.builtin.copy:
+    dest: /var/ossec/integrations/custom-iris
+    owner: root
+    group: wazuh
+    mode: '0750'
     content: |
       #!/usr/bin/env python3
       import sys, json, requests, urllib3
@@ -274,63 +260,12 @@
           print(f"ERROR: {e}", file=sys.stderr)
           sys.exit(1)
       sys.exit(0)
-  when: wazuh_mode == "native"
  
-- name: Deploy custom-iris script (docker mode - via docker cp)
-  ansible.builtin.shell: |
-    cat > /tmp/custom-iris << 'PYEOF'
-    #!/usr/bin/env python3
-    import sys, json, requests, urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    alert_file = sys.argv[1]
-    api_key    = sys.argv[2]
-    hook_url   = sys.argv[3]
-    with open(alert_file) as f:
-        alert = json.load(f)
-    rule  = alert.get("rule", {})
-    agent = alert.get("agent", {})
-    payload = {
-        "alert_title":       rule.get("description", "Wazuh Alert"),
-        "alert_description": json.dumps(alert, indent=2),
-        "alert_source":      "Wazuh",
-        "alert_source_ref":  alert.get("id", ""),
-        "alert_source_link": "",
-        "alert_severity_id": 2,
-        "alert_status_id":   2,
-        "alert_source_content": alert,
-        "alert_context": {
-            "agent_name":  agent.get("name", ""),
-            "agent_id":    agent.get("id", ""),
-            "rule_id":     rule.get("id", ""),
-            "rule_level":  rule.get("level", 0),
-            "rule_groups": rule.get("groups", []),
-        }
-    }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    try:
-        r = requests.post(hook_url, json=payload, headers=headers, verify=False, timeout=10)
-        r.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        sys.exit(1)
-    sys.exit(0)
-    PYEOF
-    chmod 750 /tmp/custom-iris
-    docker exec {{ wazuh_container }} mkdir -p /var/ossec/integrations
-    docker cp /tmp/custom-iris {{ wazuh_container }}:/var/ossec/integrations/custom-iris
-    docker exec {{ wazuh_container }} chmod 750 /var/ossec/integrations/custom-iris
-    docker exec {{ wazuh_container }} chown root:wazuh /var/ossec/integrations/custom-iris 2>/dev/null || true
-    echo "Done"
-  when: wazuh_mode == "docker"
-  changed_when: true
+# ── Step 6: inject integration block into ossec.conf ─────────────────────────
  
-# ── Step 6: inject ossec.conf integration block ───────────────────────────────
-# For docker mode we edit the bind-mounted file on the host if found,
-# otherwise edit it inside the container directly.
- 
-- name: Inject MISP and DFIR-IRIS integrations into ossec.conf (native or host bind mount)
+- name: Inject MISP and DFIR-IRIS integrations into ossec.conf
   ansible.builtin.blockinfile:
-    path: "{{ wazuh_ossec_conf }}"
+    path: /var/ossec/etc/ossec.conf
     insertbefore: "</ossec_config>"
     marker: "<!-- {mark} ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->"
     block: |
@@ -350,55 +285,50 @@
         <level>7</level>
         <alert_format>json</alert_format>
       </integration>
-  when: >
-    wazuh_mode == "native" or
-    (wazuh_mode == "docker" and ossec_conf_find.files | default([]) | length > 0)
-
-- name: Inject integrations into ossec.conf inside container (docker, no bind mount)
+ 
+# ── Step 7: validate the updated ossec.conf before restarting ────────────────
+ 
+- name: Validate ossec.conf XML after injection
   ansible.builtin.shell: |
-    docker exec {{ wazuh_container }} sh -c "
-    grep -q 'ANSIBLE MANAGED CYBERRANGE' /var/ossec/etc/ossec.conf && exit 0
-    sed -i 's|</ossec_config>|<!-- BEGIN ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->\n<integration>\n  <name>misp</name>\n  <api_key>{{ hostvars['docker-server']['misp_api_key'] }}</api_key>\n  <url>https://10.0.12.60:8443</url>\n  <alert_format>json</alert_format>\n</integration>\n<integration>\n  <name>custom-iris</name>\n  <hook_url>http://10.0.12.60:8083/api/v1/alerts/add</hook_url>\n  <api_key>{{ hostvars['docker-server']['iris_api_key'] }}</api_key>\n  <level>7</level>\n  <alert_format>json</alert_format>\n</integration>\n<!-- END ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->\n</ossec_config>|' /var/ossec/etc/ossec.conf
+    python3 -c "
+    import xml.etree.ElementTree as ET
+    try:
+        ET.parse('/var/ossec/etc/ossec.conf')
+        print('XML_OK')
+    except ET.ParseError as e:
+        print(f'XML_ERROR: {e}')
     "
-  when: >
-    wazuh_mode == "docker" and
-    (ossec_conf_find.files | default([]) | length == 0)
-  changed_when: true
+  register: ossec_xml_check_after
+  changed_when: false
  
-# ── Step 7: restart Wazuh manager ────────────────────────────────────────────
+- name: Show XML validation result after injection
+  ansible.builtin.debug:
+    var: ossec_xml_check_after.stdout
  
-- name: Restart wazuh-manager (native systemd)
+- name: FAIL if ossec.conf is malformed after injection
+  ansible.builtin.fail:
+    msg: "ossec.conf has XML errors after injection: {{ ossec_xml_check_after.stdout }}"
+  when: "'XML_ERROR' in ossec_xml_check_after.stdout"
+ 
+# ── Step 8: restart wazuh-manager ────────────────────────────────────────────
+ 
+- name: Restart wazuh-manager
   ansible.builtin.systemd:
     name: wazuh-manager
     state: restarted
     enabled: yes
-  when: wazuh_mode == "native"
  
-- name: Restart Wazuh manager container (docker mode)
-  ansible.builtin.command:
-    cmd: docker restart {{ wazuh_container }}
-  when: wazuh_mode == "docker"
-  changed_when: true
- 
-- name: Wait for Wazuh manager to come back up
+- name: Wait for wazuh-manager to come up
   ansible.builtin.pause:
-    seconds: 15
+    seconds: 10
  
-# ── Step 8: verify Wazuh manager is running ───────────────────────────────────
- 
-- name: Check Wazuh manager status (native)
-  ansible.builtin.command: /var/ossec/bin/wazuh-control status
+- name: Check wazuh-manager status
+  ansible.builtin.command:
+    cmd: /var/ossec/bin/wazuh-control status
   register: wazuh_status
   changed_when: false
   failed_when: false
-  when: wazuh_mode == "native"
  
-- name: Check Wazuh manager container status (docker)
-  ansible.builtin.command: docker ps --filter "name={{ wazuh_container }}" --format "{{ '{{' }}.Status{{ '}}' }}"
-  register: wazuh_container_status
-  changed_when: false
-  when: wazuh_mode == "docker"
- 
-- name: Show Wazuh status
+- name: Show wazuh-manager status
   ansible.builtin.debug:
-    msg: "{{ wazuh_status.stdout_lines | default(wazuh_container_status.stdout_lines | default(['unknown'])) }}"
+    var: wazuh_status.stdout_lines
