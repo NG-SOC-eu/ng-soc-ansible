@@ -135,85 +135,73 @@
   ansible.builtin.debug:
     var: ossec_junk_lines.stdout_lines
  
-# ── Step 2: fix quoted values in the pre-existing integration blocks ──────────
-# Remove surrounding double-quotes from inside XML tag values.
-# Pattern: >"something"< becomes >something<
- 
+# ── Step 2: fix quoted values ─────────────────────────────────────────────────
 - name: Fix quoted XML values in pre-existing integrations
   ansible.builtin.shell: |
-    # Remove quotes that wrap values inside XML tags: >"value"< → >value<
-    sed -i 's|>\"\(.*\)\"<|>\1<|g' /var/ossec/etc/ossec.conf
+    sed -i 's|>"\(.*\)"<|>\1<|g' /var/ossec/etc/ossec.conf
     echo "done"
-  register: fix_quotes
   changed_when: true
- 
-# ── Step 3: remove any duplicate or stray </ossec_config> tags ───────────────
-# Keep only the LAST </ossec_config> — remove all earlier ones, then
-# ensure exactly one exists at the end.
- 
-- name: Fix duplicate </ossec_config> — keep only the last one
-  ansible.builtin.shell: |
-    python3 << 'EOF'
-    with open('/var/ossec/etc/ossec.conf', 'r') as f:
-        content = f.read()
- 
-    tag = '</ossec_config>'
-    count = content.count(tag)
-    print(f"Found {count} closing tags")
- 
-    if count > 1:
-        # Remove all occurrences, then append one at the very end
-        content = content.replace(tag, '')
-        content = content.rstrip() + '\n' + tag + '\n'
-        with open('/var/ossec/etc/ossec.conf', 'w') as f:
-            f.write(content)
-        print("Fixed: reduced to 1 closing tag")
-    else:
-        print("OK: exactly 1 closing tag, no change needed")
-    EOF
-  register: fix_closing_tag
-  changed_when: true
- 
-- name: Show closing tag fix result
-  ansible.builtin.debug:
-    var: fix_closing_tag.stdout_lines
- 
-# ── Step 4: remove our ANSIBLE block if it survived somehow ──────────────────
- 
+
+# ── Step 3: clean up duplicate integration blocks from previous runs ──────────
 - name: Remove any previous ANSIBLE MANAGED integration block
   ansible.builtin.blockinfile:
     path: /var/ossec/etc/ossec.conf
     marker: "<!-- {mark} ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->"
     state: absent
-  ignore_errors: true
- 
-# ── Step 5: validate ossec.conf is now clean XML ─────────────────────────────
- 
-- name: Validate ossec.conf XML after cleanup
+
+# ── Step 4: fix ossec.conf structure (multi-root aware) ───────────────────────
+# ossec.conf is NOT standard XML — Wazuh allows multiple <ossec_config> blocks.
+# We must NOT collapse them into one. Instead:
+#   1. Remove any stray text/blank lines after the last </ossec_config>
+#   2. Remove any <ossec_config> blocks that are completely empty (artifact of bad blockinfile runs)
+- name: Strip any stray content after last closing tag
   ansible.builtin.shell: |
-    python3 -c "
-    import xml.etree.ElementTree as ET
-    try:
-        ET.parse('/var/ossec/etc/ossec.conf')
-        print('XML_OK')
-    except ET.ParseError as e:
-        print(f'XML_ERROR: {e}')
-    "
-  register: ossec_xml_clean
-  changed_when: false
- 
-- name: Show XML validation after cleanup
+    python3 << 'EOF'
+    with open('/var/ossec/etc/ossec.conf', 'r') as f:
+        content = f.read()
+
+    tag = '</ossec_config>'
+    last_idx = content.rfind(tag)
+    if last_idx == -1:
+        print("ERROR: no closing tag found!")
+    else:
+        # Keep everything up to and including the last closing tag
+        trimmed = content[:last_idx + len(tag)].rstrip() + '\n'
+        with open('/var/ossec/etc/ossec.conf', 'w') as f:
+            f.write(trimmed)
+        print(f"Trimmed. Closing tags in result: {trimmed.count(tag)}")
+    EOF
+  register: fix_structure
+  changed_when: true
+
+- name: Show structure fix result
   ansible.builtin.debug:
-    var: ossec_xml_clean.stdout
- 
-- name: FAIL if ossec.conf still has XML errors after cleanup
+    var: fix_structure.stdout_lines
+
+# ── Step 5: validate using Wazuh's own tool (not ET.parse) ───────────────────
+- name: Validate ossec.conf with Wazuh's verify-agent-conf tool
+  ansible.builtin.shell: |
+    /var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1 || true
+    # Wazuh's tool returns 0 on success, non-zero on error.
+    # We capture output and check for known error strings.
+    result=$(/var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1)
+    if echo "$result" | grep -qi "error"; then
+      echo "CONF_ERROR: $result"
+    else
+      echo "CONF_OK"
+    fi
+  register: ossec_verify
+  changed_when: false
+
+- name: Show Wazuh config verification result
+  ansible.builtin.debug:
+    var: ossec_verify.stdout
+
+- name: FAIL if ossec.conf fails Wazuh verification
   ansible.builtin.fail:
-    msg: >
-      ossec.conf still has XML errors after automated cleanup: {{ ossec_xml_clean.stdout }}
-      Show lines 330-345 output above for what's still broken.
-      Manual fix may be needed: check for stray text outside the root element.
-  when: "'XML_ERROR' in ossec_xml_clean.stdout"
- 
+    msg: "ossec.conf failed Wazuh verification: {{ ossec_verify.stdout }}"
+  when: "'CONF_ERROR' in ossec_verify.stdout"
+
 # ── Step 6: deploy custom-iris integration script ────────────────────────────
  
 - name: Ensure Wazuh integrations directory exists
@@ -296,25 +284,23 @@
  
 - name: Validate ossec.conf after integration injection
   ansible.builtin.shell: |
-    python3 -c "
-    import xml.etree.ElementTree as ET
-    try:
-        ET.parse('/var/ossec/etc/ossec.conf')
-        print('XML_OK')
-    except ET.ParseError as e:
-        print(f'XML_ERROR: {e}')
-    "
+    result=$(/var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1)
+    if echo "$result" | grep -qi "error"; then
+      echo "CONF_ERROR: $result"
+    else
+      echo "CONF_OK"
+    fi
   register: ossec_xml_final
   changed_when: false
- 
-- name: Show final XML validation
+
+- name: Show final validation
   ansible.builtin.debug:
     var: ossec_xml_final.stdout
- 
-- name: FAIL if ossec.conf has XML errors after injection
+
+- name: FAIL if ossec.conf has errors after injection
   ansible.builtin.fail:
-    msg: "ossec.conf has XML errors after injection: {{ ossec_xml_final.stdout }}"
-  when: "'XML_ERROR' in ossec_xml_final.stdout"
+    msg: "ossec.conf failed after injection: {{ ossec_xml_final.stdout }}"
+  when: "'CONF_ERROR' in ossec_xml_final.stdout"
  
 # ── Step 9: restart and verify ────────────────────────────────────────────────
  
