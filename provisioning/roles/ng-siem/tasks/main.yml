@@ -123,6 +123,19 @@
       iris_api_key is not set in hostvars['docker-server'].
       Same checklist as above.
 
+# Remove later ___________________________________________________________________
+- name: Get wazuh-manager journal to diagnose startup failure
+  ansible.builtin.command:
+    cmd: journalctl -u wazuh-manager -n 50 --no-pager
+  register: wazuh_journal
+  changed_when: false
+  failed_when: false
+
+- name: Show wazuh-manager journal
+  ansible.builtin.debug:
+    var: wazuh_journal.stdout_lines
+
+
 # ── Step 1: find out WHY wazuh-manager is failing ────────────────────────────
  
 - name: Get wazuh-manager journal (last 30 lines)
