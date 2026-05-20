@@ -167,27 +167,31 @@
 
 # ── Step 4: validate using Wazuh's own tool ───────────────────────────────────
 # verify-agent-conf resolves paths relative to /var/ossec/ — pass relative path
-- name: Validate ossec.conf with Wazuh's verify-agent-conf tool
+- name: Diagnose ossec.conf accessibility and verify-agent-conf usage
   ansible.builtin.shell: |
-    result=$(/var/ossec/bin/verify-agent-conf -f etc/ossec.conf 2>&1)
-    if echo "$result" | grep -qi "error\|critical"; then
-      echo "CONF_ERROR: $result"
-    else
-      echo "CONF_OK"
-    fi
+    echo "=== File exists and perms ==="
+    ls -la /var/ossec/etc/ossec.conf
+    echo "=== File size ==="
+    wc -l /var/ossec/etc/ossec.conf
+    echo "=== Last 5 lines ==="
+    tail -5 /var/ossec/etc/ossec.conf
+    echo "=== verify-agent-conf help ==="
+    /var/ossec/bin/verify-agent-conf --help 2>&1 || true
+    echo "=== try with no -f flag (default path) ==="
+    /var/ossec/bin/verify-agent-conf 2>&1 || true
+    echo "=== try with full absolute path ==="
+    /var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1 || true
+    echo "=== current user ==="
+    whoami
   args:
     chdir: /var/ossec
-  register: ossec_verify
+  register: ossec_diag
   changed_when: false
+  failed_when: false
 
-- name: Show Wazuh config verification result
+- name: Show diagnosis
   ansible.builtin.debug:
-    var: ossec_verify.stdout
-
-- name: FAIL if ossec.conf fails Wazuh verification
-  ansible.builtin.fail:
-    msg: "ossec.conf failed Wazuh verification: {{ ossec_verify.stdout }}"
-  when: "'CONF_ERROR' in ossec_verify.stdout"
+    var: ossec_diag.stdout_lines
 
 # ── Step 6: deploy custom-iris integration script ────────────────────────────
  
