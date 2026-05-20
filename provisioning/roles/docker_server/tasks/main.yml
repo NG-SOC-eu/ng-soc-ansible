@@ -240,6 +240,7 @@
 - name: Save MISP API key fact
   set_fact:
     misp_api_key: "{{ misp_user_info.stdout.split('Old authentication keys disabled and new key created: ')[1] | trim }}"
+    cacheable: yes
 
 - name: Inject MISP integration settings into DFIR-IRIS .env
   lineinfile:
@@ -268,22 +269,123 @@
     build: always
   register: dfir_iris_output
 
-- name: Wait for CICMS (DFIR-IRIS) to initialize
-  ansible.builtin.pause:
-    seconds: 30
+#- name: Wait for CICMS (DFIR-IRIS) to initialize
+#  ansible.builtin.pause:
+#    seconds: 30
 
-- name: Extract pre-generated API key from Iris database
+# Verify Hardcoded API Key (API KEY Given)
+- name: Test known DFIR-IRIS API key against live instance
+  ansible.builtin.uri:
+    url: "http://localhost:8083/api/v1/users/me"
+    method: GET
+    headers:
+      Authorization: "Bearer c-8vTC8nDC6iggE9f0jfVS1r6BEWUpAvHiMpT16bDJN1YqEIYPAI6ldxiwEMKx3w7n4cxTml4_X-RKol-_xUuQ"
+      Content-Type: "application/json"
+    validate_certs: false
+    status_code: [200, 401, 403]
+    timeout: 10
+  register: iris_key_test
+  ignore_errors: true
+
+- name: Debug key test result
+  ansible.builtin.debug:
+    msg: >
+      DFIR-IRIS key test HTTP status: {{ iris_key_test.status | default('UNREACHABLE') }}.
+      {% if iris_key_test.status | default(0) == 200 %}
+        ✅ Hardcoded key is VALID — will use it.
+      {% else %}
+        ❌ Hardcoded key FAILED — will extract from DB.
+      {% endif %}
+
+# Extract key from DB (only if hardcoded key failed)
+- name: Extract DFIR-IRIS API key from database (schema v2.4+)
   community.docker.docker_container_exec:
-    container: iris_app
+    container: iris_db
     command: >
-      psql -U postgres -d iris_db -t -c 
-      "SELECT key FROM users_apikey WHERE user_id = (SELECT id FROM users_user WHERE email = 'admin@local.test') LIMIT 1;"
-  register: iris_user_info
+      psql -U postgres -d iris_db -t -A -c
+      "SELECT token FROM user_token
+         JOIN user_account ON user_token.user_id = user_account.id
+        WHERE user_account.user_login = 'administrator'
+        LIMIT 1;"
+  register: iris_db_key_v24
+  when: iris_key_test.status | default(0) != 200
+  ignore_errors: true
 
-- name: Save DFIR-IRIS API key fact
-  set_fact:
-    iris_api_key: "{{ iris_user_info.stdout | trim }}"
+- name: Extract DFIR-IRIS API key from database (schema v2.3 fallback)
+  community.docker.docker_container_exec:
+    container: iris_db
+    command: >
+      psql -U postgres -d iris_db -t -A -c
+      "SELECT key FROM users_apikey
+         JOIN users_user ON users_apikey.user_id = users_user.id
+        WHERE users_user.name = 'administrator'
+        LIMIT 1;"
+  register: iris_db_key_v23
+  when:
+    - iris_key_test.status | default(0) != 200
+    - iris_db_key_v24.stdout is not defined or iris_db_key_v24.stdout | trim == ''
+  ignore_errors: true
+
+# Dump the DB schema for debugging if both queries failed
+- name: List tables in iris_db (debug — runs only if key extraction failed)
+  community.docker.docker_container_exec:
+    container: iris_db
+    command: >
+      psql -U postgres -d iris_db -c "\dt"
+  register: iris_db_tables
+  when:
+    - iris_key_test.status | default(0) != 200
+    - iris_db_key_v24.stdout is not defined or iris_db_key_v24.stdout | trim == ''
+    - iris_db_key_v23.stdout is not defined or iris_db_key_v23.stdout | trim == ''
+  ignore_errors: true
+
+- name: Show DB tables (debug output)
+  ansible.builtin.debug:
+    var: iris_db_tables.stdout_lines
+  when: iris_db_tables is defined and not iris_db_tables.skipped | default(true)
+
+# Resolve which key to use and save as fact
+- name: Set iris_api_key fact — from hardcoded key (verified working)
+  ansible.builtin.set_fact:
+    iris_api_key: "c-8vTC8nDC6iggE9f0jfVS1r6BEWUpAvHiMpT16bDJN1YqEIYPAI6ldxiwEMKx3w7n4cxTml4_X-RKol-_xUuQ"
     cacheable: yes
+  when: iris_key_test.status | default(0) == 200
+
+- name: Set iris_api_key fact — from DB (v2.4+ schema)
+  ansible.builtin.set_fact:
+    iris_api_key: "{{ iris_db_key_v24.stdout | trim }}"
+    cacheable: yes
+  when:
+    - iris_key_test.status | default(0) != 200
+    - iris_db_key_v24 is defined
+    - iris_db_key_v24.stdout is defined
+    - iris_db_key_v24.stdout | trim != ''
+
+- name: Set iris_api_key fact — from DB (v2.3 fallback schema)
+  ansible.builtin.set_fact:
+    iris_api_key: "{{ iris_db_key_v23.stdout | trim }}"
+    cacheable: yes
+  when:
+    - iris_key_test.status | default(0) != 200
+    - iris_api_key is not defined
+    - iris_db_key_v23 is defined
+    - iris_db_key_v23.stdout is defined
+    - iris_db_key_v23.stdout | trim != ''
+
+- name: FAIL — could not obtain a valid DFIR-IRIS API key
+  ansible.builtin.fail:
+    msg: >
+      Could not obtain a working DFIR-IRIS API key.
+      Hardcoded key test: {{ iris_key_test.status | default('UNREACHABLE') }}.
+      DB v2.4 result: {{ iris_db_key_v24.stdout | default('(empty or skipped)') }}.
+      DB v2.3 result: {{ iris_db_key_v23.stdout | default('(empty or skipped)') }}.
+      Check the DB tables output above and adjust the SQL query accordingly.
+  when: iris_api_key is not defined or iris_api_key | trim == ''
+  
+# Final Confirmation
+- name: Confirm final IRIS API key (first 10 chars only for security)
+  ansible.builtin.debug:
+    msg: "iris_api_key resolved: {{ iris_api_key[:10] }}... ({{ iris_api_key | length }} chars)"
 
 - name: Show Docker Compose output
   ansible.builtin.debug:
@@ -295,7 +397,6 @@
       NG-SOAR: {{ NG_SOAR_output | default('No output captured') }}
       MISP: {{ misp_output | default('No output captured') }}
       Portainer: {{portainer_output | default('No output caprured') }}
-      DFIF_IRIS_API: {{iris_user_info | default('No output caprured') }}
 
 - name: Unmount SMB share
   ansible.builtin.mount:
