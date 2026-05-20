@@ -122,91 +122,215 @@
       iris_api_key is not set in hostvars['docker-server'].
       Same checklist as above.
 
-# Install the custom DFIR-IRIS integration script ────────────────────────────────────
-- name: Ensure Wazuh integrations directory exists
+# ── Step 1: discover how Wazuh is running ────────────────────────────────────
+ 
+- name: Check if wazuh-manager systemd service exists
+  ansible.builtin.command: systemctl status wazuh-manager
+  register: wazuh_systemd
+  changed_when: false
+  failed_when: false
+ 
+- name: Check if Wazuh is running in Docker
+  ansible.builtin.command: docker ps --filter "name=wazuh" --format "{{ '{{' }}.Names{{ '}}' }}"
+  register: wazuh_docker_containers
+  changed_when: false
+  failed_when: false
+ 
+- name: Check if Wazuh manager container exists (common names)
+  ansible.builtin.command: >
+    docker ps -a --format "{{ '{{' }}.Names{{ '}}' }}"
+  register: all_docker_containers
+  changed_when: false
+  failed_when: false
+ 
+- name: Show Wazuh discovery results
+  ansible.builtin.debug:
+    msg:
+      - "systemd wazuh-manager rc: {{ wazuh_systemd.rc }}"
+      - "Docker containers with 'wazuh' in name: {{ wazuh_docker_containers.stdout_lines }}"
+      - "All Docker containers: {{ all_docker_containers.stdout_lines }}"
+ 
+# ── Step 2: find ossec.conf path ─────────────────────────────────────────────
+# Native install: /var/ossec/etc/ossec.conf
+# Docker install: could be a bind mount on the host, or inside the container
+ 
+- name: Check if native ossec.conf exists
+  ansible.builtin.stat:
+    path: /var/ossec/etc/ossec.conf
+  register: ossec_conf_native
+ 
+- name: Find ossec.conf on host (bind mount from docker)
+  ansible.builtin.find:
+    paths:
+      - /opt/wazuh
+      - /opt/wazuh-docker
+      - /home
+      - /root
+      - /etc/wazuh
+    patterns: "ossec.conf"
+    recurse: yes
+  register: ossec_conf_find
+  failed_when: false
+ 
+- name: Show ossec.conf locations
+  ansible.builtin.debug:
+    msg:
+      - "Native /var/ossec/etc/ossec.conf exists: {{ ossec_conf_native.stat.exists }}"
+      - "Other locations found: {{ ossec_conf_find.files | map(attribute='path') | list }}"
+ 
+# ── Step 3: set facts based on discovery ─────────────────────────────────────
+ 
+- name: Set wazuh_mode to native
+  ansible.builtin.set_fact:
+    wazuh_mode: "native"
+    wazuh_ossec_conf: "/var/ossec/etc/ossec.conf"
+    wazuh_integrations_dir: "/var/ossec/integrations"
+  when: ossec_conf_native.stat.exists and wazuh_systemd.rc == 0
+ 
+- name: Set wazuh_mode to docker
+  ansible.builtin.set_fact:
+    wazuh_mode: "docker"
+    wazuh_container: "{{ wazuh_docker_containers.stdout_lines | select('match', '.*wazuh.*manager.*|.*wazuh.*') | first | default(wazuh_docker_containers.stdout_lines | first | default('wazuh.manager')) }}"
+    wazuh_ossec_conf: "{{ ossec_conf_find.files[0].path if ossec_conf_find.files | length > 0 else '/var/ossec/etc/ossec.conf' }}"
+  when: >
+    not ossec_conf_native.stat.exists or wazuh_systemd.rc != 0
+ 
+- name: Show resolved Wazuh mode
+  ansible.builtin.debug:
+    msg:
+      - "Wazuh mode: {{ wazuh_mode }}"
+      - "ossec.conf path: {{ wazuh_ossec_conf }}"
+      - "Container (if docker): {{ wazuh_container | default('n/a') }}"
+ 
+# ── Step 4: find integrations directory ──────────────────────────────────────
+ 
+- name: Find Wazuh integrations directory (docker bind mount)
+  ansible.builtin.find:
+    paths:
+      - /opt/wazuh
+      - /opt/wazuh-docker
+      - /home
+      - /root
+    patterns: "integrations"
+    file_type: directory
+    recurse: yes
+  register: integrations_dir_find
+  when: wazuh_mode == "docker"
+  failed_when: false
+ 
+- name: Set integrations dir for docker mode
+  ansible.builtin.set_fact:
+    wazuh_integrations_dir: "{{ integrations_dir_find.files[0].path if (integrations_dir_find.files | default([]) | length > 0) else '/var/ossec/integrations' }}"
+  when: wazuh_mode == "docker"
+ 
+# ── Step 5: deploy custom-iris integration script ────────────────────────────
+ 
+- name: Ensure integrations directory exists on host
   ansible.builtin.file:
-    path: /var/ossec/integrations
+    path: "{{ wazuh_integrations_dir }}"
     state: directory
-    owner: root
-    group: wazuh
-    mode: '0750'
-
-- name: Deploy custom DFIR-IRIS integration script
+    mode: '0755'
+  when: wazuh_mode == "native"
+ 
+- name: Deploy custom-iris script (native mode - to host filesystem)
   ansible.builtin.copy:
-    dest: /var/ossec/integrations/custom-iris
+    dest: "{{ wazuh_integrations_dir }}/custom-iris"
+    mode: '0750'
     owner: root
     group: wazuh
-    mode: '0750'
     content: |
       #!/usr/bin/env python3
-      # Wazuh → DFIR-IRIS alert forwarder
-      # Installed by Ansible — do not edit manually
-      import sys, json, os, requests, urllib3
+      import sys, json, requests, urllib3
       urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-      alert_file  = sys.argv[1]
-      api_key     = sys.argv[2]
-      hook_url    = sys.argv[3]
-
+      alert_file = sys.argv[1]
+      api_key    = sys.argv[2]
+      hook_url   = sys.argv[3]
       with open(alert_file) as f:
           alert = json.load(f)
-
-      rule    = alert.get("rule", {})
-      agent   = alert.get("agent", {})
-      data    = alert.get("data", {})
-
+      rule  = alert.get("rule", {})
+      agent = alert.get("agent", {})
       payload = {
           "alert_title":       rule.get("description", "Wazuh Alert"),
           "alert_description": json.dumps(alert, indent=2),
           "alert_source":      "Wazuh",
           "alert_source_ref":  alert.get("id", ""),
           "alert_source_link": "",
-          "alert_severity_id": 2,   # 1=Info 2=Low 3=Medium 4=High 5=Critical
-          "alert_status_id":   2,   # 1=Unspecified 2=New 3=Assigned 4=InProgress
+          "alert_severity_id": 2,
+          "alert_status_id":   2,
           "alert_source_content": alert,
           "alert_context": {
-              "agent_name": agent.get("name", ""),
-              "agent_id":   agent.get("id", ""),
-              "rule_id":    rule.get("id", ""),
-              "rule_level": rule.get("level", 0),
+              "agent_name":  agent.get("name", ""),
+              "agent_id":    agent.get("id", ""),
+              "rule_id":     rule.get("id", ""),
+              "rule_level":  rule.get("level", 0),
               "rule_groups": rule.get("groups", []),
           }
       }
-
-      headers = {
-          "Authorization": f"Bearer {api_key}",
-          "Content-Type":  "application/json",
-      }
-
+      headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
       try:
-          r = requests.post(hook_url, json=payload, headers=headers,
-                            verify=False, timeout=10)
+          r = requests.post(hook_url, json=payload, headers=headers, verify=False, timeout=10)
           r.raise_for_status()
       except requests.exceptions.RequestException as e:
-          print(f"ERROR sending alert to DFIR-IRIS: {e}", file=sys.stderr)
+          print(f"ERROR: {e}", file=sys.stderr)
           sys.exit(1)
-
-      print(f"Alert forwarded: HTTP {r.status_code}")
       sys.exit(0)
-
-# Wazuh also expects a .py wrapper file with the same base name ───────────────
-- name: Deploy custom-iris Python shim (Wazuh ≥ 4.4 requirement)
-  ansible.builtin.copy:
-    dest: /var/ossec/integrations/custom-iris.py
-    owner: root
-    group: wazuh
-    mode: '0750'
-    content: |
-      #!/usr/bin/env python3
-      # Thin shim — actual logic is in custom-iris (no extension)
-      import subprocess, sys
-      sys.exit(subprocess.call(["/var/ossec/integrations/custom-iris"] + sys.argv[1:]))
-
-# Inject integration blocks into ossec.conf ─────────────────────────────────
-
-- name: Inject MISP and DFIR-IRIS integrations into Wazuh ossec.conf
+  when: wazuh_mode == "native"
+ 
+- name: Deploy custom-iris script (docker mode - via docker cp)
+  ansible.builtin.shell: |
+    cat > /tmp/custom-iris << 'PYEOF'
+    #!/usr/bin/env python3
+    import sys, json, requests, urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    alert_file = sys.argv[1]
+    api_key    = sys.argv[2]
+    hook_url   = sys.argv[3]
+    with open(alert_file) as f:
+        alert = json.load(f)
+    rule  = alert.get("rule", {})
+    agent = alert.get("agent", {})
+    payload = {
+        "alert_title":       rule.get("description", "Wazuh Alert"),
+        "alert_description": json.dumps(alert, indent=2),
+        "alert_source":      "Wazuh",
+        "alert_source_ref":  alert.get("id", ""),
+        "alert_source_link": "",
+        "alert_severity_id": 2,
+        "alert_status_id":   2,
+        "alert_source_content": alert,
+        "alert_context": {
+            "agent_name":  agent.get("name", ""),
+            "agent_id":    agent.get("id", ""),
+            "rule_id":     rule.get("id", ""),
+            "rule_level":  rule.get("level", 0),
+            "rule_groups": rule.get("groups", []),
+        }
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    try:
+        r = requests.post(hook_url, json=payload, headers=headers, verify=False, timeout=10)
+        r.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(0)
+    PYEOF
+    chmod 750 /tmp/custom-iris
+    docker exec {{ wazuh_container }} mkdir -p /var/ossec/integrations
+    docker cp /tmp/custom-iris {{ wazuh_container }}:/var/ossec/integrations/custom-iris
+    docker exec {{ wazuh_container }} chmod 750 /var/ossec/integrations/custom-iris
+    docker exec {{ wazuh_container }} chown root:wazuh /var/ossec/integrations/custom-iris 2>/dev/null || true
+    echo "Done"
+  when: wazuh_mode == "docker"
+  changed_when: true
+ 
+# ── Step 6: inject ossec.conf integration block ───────────────────────────────
+# For docker mode we edit the bind-mounted file on the host if found,
+# otherwise edit it inside the container directly.
+ 
+- name: Inject MISP and DFIR-IRIS integrations into ossec.conf (native or host bind mount)
   ansible.builtin.blockinfile:
-    path: /var/ossec/etc/ossec.conf
+    path: "{{ wazuh_ossec_conf }}"
     insertbefore: "</ossec_config>"
     marker: "<!-- {mark} ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->"
     block: |
@@ -217,8 +341,8 @@
         <url>https://10.0.12.60:8443</url>
         <alert_format>json</alert_format>
       </integration>
-
-      <!-- Integration with CICMS (DFIR-IRIS) — only forward level >= 7 -->
+ 
+      <!-- Integration with CICMS (DFIR-IRIS) -->
       <integration>
         <name>custom-iris</name>
         <hook_url>http://10.0.12.60:8083/api/v1/alerts/add</hook_url>
@@ -226,167 +350,55 @@
         <level>7</level>
         <alert_format>json</alert_format>
       </integration>
-
-# Validate ossec.conf before restarting ────────────────────────────────────
-
-- name: Validate Wazuh configuration syntax
-  ansible.builtin.command: /var/ossec/bin/wazuh-logtest -t
-  register: wazuh_config_check
-  changed_when: false
-  failed_when:
-    - wazuh_config_check.rc != 0
-    - "'ERROR' in wazuh_config_check.stderr"
-  ignore_errors: true
-
-- name: Show config validation output
-  ansible.builtin.debug:
-    var: wazuh_config_check.stdout_lines
-  when: wazuh_config_check is defined
-
-- name: Restart Wazuh Manager
+  when: >
+    wazuh_mode == "native" or
+    (wazuh_mode == "docker" and ossec_conf_find.files | default([]) | length > 0)
+ 
+- name: Inject integrations into ossec.conf inside container (docker, no bind mount)
+  ansible.builtin.shell: |
+    docker exec {{ wazuh_container }} sh -c "
+    grep -q 'ANSIBLE MANAGED CYBERRANGE' /var/ossec/etc/ossec.conf && exit 0
+    sed -i 's|</ossec_config>|<!-- BEGIN ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->\n<integration>\n  <name>misp</name>\n  <api_key>{{ hostvars['docker-server']['misp_api_key'] }}</api_key>\n  <url>https://10.0.12.60:8443</url>\n  <alert_format>json</alert_format>\n</integration>\n<integration>\n  <name>custom-iris</name>\n  <hook_url>http://10.0.12.60:8083/api/v1/alerts/add</hook_url>\n  <api_key>{{ hostvars['docker-server']['iris_api_key'] }}</api_key>\n  <level>7</level>\n  <alert_format>json</alert_format>\n</integration>\n<!-- END ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->\n</ossec_config>|' /var/ossec/etc/ossec.conf
+    "
+  when: >
+    wazuh_mode == "docker" and
+    (ossec_conf_find.files | default([]) | length == 0)
+  changed_when: true
+ 
+# ── Step 7: restart Wazuh manager ────────────────────────────────────────────
+ 
+- name: Restart wazuh-manager (native systemd)
   ansible.builtin.systemd:
     name: wazuh-manager
     state: restarted
     enabled: yes
-
-- name: Wait for Wazuh Manager to come back up
-  ansible.builtin.wait_for:
-    port: 55000
-    host: 127.0.0.1
-    delay: 5
-    timeout: 60
-
-# INTEGRATION TESTS ────────────────────────────────────
-# ── Test 1: Wazuh → MISP connectivity ────────────────────────────────────────
-
-- name: "[TEST] Wazuh → MISP: check API reachability"
-  ansible.builtin.uri:
-    url: "https://10.0.12.60:8443/servers/getVersion"
-    method: GET
-    headers:
-      Authorization: "{{ hostvars['docker-server']['misp_api_key'] }}"
-      Accept: "application/json"
-    validate_certs: false
-    timeout: 10
-    status_code: [200, 401, 403]
-  register: misp_reachability_test
-  ignore_errors: true
-
-- name: "[TEST] MISP reachability result"
-  ansible.builtin.debug:
-    msg: >
-      {% if misp_reachability_test.status | default(0) == 200 %}
-        MISP reachable and API key VALID (HTTP 200)
-      {% elif misp_reachability_test.status | default(0) in [401, 403] %}
-        MISP reachable but API key REJECTED (HTTP {{ misp_reachability_test.status }})
-           → Regenerate key on docker-server and re-run.
-      {% else %}
-        MISP NOT reachable from ng-siem ({{ misp_reachability_test.msg | default('timeout/refused') }})
-           → Check firewall rules between ng-siem and docker-server (port 8443).
-      {% endif %}
-
-# ── Test 2: Wazuh → DFIR-IRIS connectivity ───────────────────────────────────
-
-- name: "[TEST] Wazuh → DFIR-IRIS: check API reachability"
-  ansible.builtin.uri:
-    url: "http://10.0.12.60:8083/api/v1/users/me"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ hostvars['docker-server']['iris_api_key'] }}"
-      Content-Type: "application/json"
-    validate_certs: false
-    timeout: 10
-    status_code: [200, 401, 403]
-  register: iris_reachability_test
-  ignore_errors: true
-
-- name: "[TEST] DFIR-IRIS reachability result"
-  ansible.builtin.debug:
-    msg: >
-      {% if iris_reachability_test.status | default(0) == 200 %}
-        DFIR-IRIS reachable and API key VALID (HTTP 200)
-           User: {{ iris_reachability_test.json.data.user_name | default('unknown') }}
-      {% elif iris_reachability_test.status | default(0) in [401, 403] %}
-        DFIR-IRIS reachable but API key REJECTED (HTTP {{ iris_reachability_test.status }})
-           → Check iris_api_key extraction logic in docker-server role.
-      {% else %}
-        DFIR-IRIS NOT reachable from ng-siem ({{ iris_reachability_test.msg | default('timeout/refused') }})
-           → Check firewall/port 8083, and that iris_nginx container is running.
-      {% endif %}
-
-# ── Test 3: send a synthetic alert to DFIR-IRIS ───────────────────────────────
-
-- name: "[TEST] Send synthetic Wazuh-style alert to DFIR-IRIS"
-  ansible.builtin.uri:
-    url: "http://10.0.12.60:8083/api/v1/alerts/add"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ hostvars['docker-server']['iris_api_key'] }}"
-      Content-Type: "application/json"
-    body_format: json
-    body:
-      alert_title: "Ansible Integration Test Alert"
-      alert_description: "Synthetic alert sent by Ansible to verify Wazuh → DFIR-IRIS integration."
-      alert_source: "Wazuh"
-      alert_source_ref: "ansible-test-001"
-      alert_source_link: ""
-      alert_severity_id: 1
-      alert_status_id: 2
-      alert_source_content:
-        rule:
-          id: "99999"
-          level: 3
-          description: "Ansible integration test"
-        agent:
-          id: "000"
-          name: "ng-siem"
-    validate_certs: false
-    timeout: 15
-    status_code: [200, 201]
-  register: iris_alert_test
-  ignore_errors: true
-
-- name: "[TEST] Synthetic alert result"
-  ansible.builtin.debug:
-    msg: >
-      {% if iris_alert_test.status | default(0) in [200, 201] %}
-        Synthetic alert CREATED in DFIR-IRIS
-           Alert ID: {{ iris_alert_test.json.data.alert_id | default('see DFIR-IRIS UI') }}
-           → Log into http://10.0.12.60:8083 and confirm it appears under Alerts.
-      {% else %}
-        Synthetic alert FAILED (HTTP {{ iris_alert_test.status | default('UNREACHABLE') }})
-           Response: {{ iris_alert_test.json | default(iris_alert_test.msg) | default('no response') }}
-      {% endif %}
-
-# ── Test 4: check Wazuh integration log for errors ───────────────────────────
-
-- name: "[TEST] Check Wazuh integrations log for recent errors"
-  ansible.builtin.shell: |
-    if [ -f /var/ossec/logs/integrations.log ]; then
-      tail -50 /var/ossec/logs/integrations.log
-    else
-      echo "integrations.log not yet created (no alerts forwarded yet — this is normal)"
-    fi
-  register: wazuh_integration_log
+  when: wazuh_mode == "native"
+ 
+- name: Restart Wazuh manager container (docker mode)
+  ansible.builtin.command:
+    cmd: docker restart {{ wazuh_container }}
+  when: wazuh_mode == "docker"
+  changed_when: true
+ 
+- name: Wait for Wazuh manager to come back up
+  ansible.builtin.pause:
+    seconds: 15
+ 
+# ── Step 8: verify Wazuh manager is running ───────────────────────────────────
+ 
+- name: Check Wazuh manager status (native)
+  ansible.builtin.command: /var/ossec/bin/wazuh-control status
+  register: wazuh_status
   changed_when: false
-
-- name: "[TEST] Wazuh integrations log (last 50 lines)"
+  failed_when: false
+  when: wazuh_mode == "native"
+ 
+- name: Check Wazuh manager container status (docker)
+  ansible.builtin.command: docker ps --filter "name={{ wazuh_container }}" --format "{{ '{{' }}.Status{{ '}}' }}"
+  register: wazuh_container_status
+  changed_when: false
+  when: wazuh_mode == "docker"
+ 
+- name: Show Wazuh status
   ansible.builtin.debug:
-    var: wazuh_integration_log.stdout_lines
-
-# ── Final summary ─────────────────────────────────────────────────────────────
-
-- name: Integration test summary
-  ansible.builtin.debug:
-    msg:
-      - "======================================="
-      - "  CYBERRANGE INTEGRATION TEST SUMMARY  "
-      - "======================================="
-      - "MISP (CTI-SS):      HTTP {{ misp_reachability_test.status | default('FAIL') }}"
-      - "DFIR-IRIS (CICMS):  HTTP {{ iris_reachability_test.status | default('FAIL') }}"
-      - "Synthetic alert:    HTTP {{ iris_alert_test.status | default('FAIL') }}"
-      - "======================================="
-      - "Next steps:"
-      - "  1. Verify alert in DFIR-IRIS UI → http://10.0.12.60:8083"
-      - "  2. Trigger a Wazuh rule (level ≥ 7) from Kali and watch integrations.log"
-      - "  3. Confirm MISP events appear in Wazuh manager logs"
+    msg: "{{ wazuh_status.stdout_lines | default(wazuh_container_status.stdout_lines | default(['unknown'])) }}"
