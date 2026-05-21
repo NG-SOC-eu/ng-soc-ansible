@@ -10,10 +10,42 @@
     cache_valid_time: 3600
   become: yes
 
-#- name: Update all packages
-#  apt:
+- name: Fix broken dpkg state (Pre-check)
+  ansible.builtin.shell: |
+    dpkg --configure -a
+    apt-get install -f -y
+  register: dpkg_fix
+  changed_when: false
+
+- name: Force resolve pyinstaller package conflict
+  ansible.builtin.shell: |
+    apt-get -o Dpkg::Options::="--force-overwrite" install -y pyinstaller-hooks-contrib
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  changed_when: true
+
+- name: Stop and Purge ALL old PostgreSQL versions
+  ansible.builtin.apt:
+    name:
+      - postgresql-17
+      - postgresql-client-17
+      - postgresql-common
+    state: absent
+    purge: yes
+
+- name: Update all packages
+  apt:
 #    upgrade: dist
-#    autoremove: yes
+    upgrade: yes
+    autoremove: yes
+    update_cache: yes
+    dpkg_options: 'force-confold,force-confdef'
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  register: upgrade_output
+  retries: 3
+  delay: 10
+  until: upgrade_output is success
 
 - name: Install needed packages
   apt:
@@ -38,7 +70,11 @@
       - unzip
       - rsync
       - redis
-      - postgresql
+      - postgresql-18
+      - postgresql-client-18
+      - postgresql-common
+      - python3-psycopg2
+      - metasploit-framework
     state: present
     install_recommends: yes
   
@@ -87,6 +123,8 @@
     - Automation_Pipeline.py
     - AI_Pipeline.py
 
+
+####################### Installing MITRE CALDERA ##################################
 - name: Git Clone Caldera
   git:
     repo: "https://github.com/mitre/caldera.git"
@@ -186,8 +224,36 @@
     enabled: yes
     state: started
 
+
+########## Postgres #############################
+- name: Ensure PostgreSQL 18 is running on port 5432
+  become: yes
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: yes
+    
+
+- name: Ensure PostgreSQL service is running and enabled
+  service:
+    name: postgresql
+    state: started
+    enabled: yes
+
+- name: Verify PostgreSQL version and port
+  become: yes
+  ansible.builtin.shell: pg_lsclusters
+  register: pg_check
+  changed_when: false
+
+- name: Debug PG Status
+  ansible.builtin.debug:
+    msg: "Postgres is running: {{ pg_check.stdout }}"
+
+
+################# Install OpenVAS #################################
 - name: Install OpenVAS (gvm-setup)
-  command: gvm-setup
+  command: gvm-setup --not-interactive
   become: yes
   register: gvm_setup_output
   failed_when: gvm_setup_output.rc != 0 and "already" not in gvm_setup_output.stderr  # Allow if already set up
@@ -198,16 +264,21 @@
     var: gvm_setup_output.stdout_lines
   when: gvm_setup_output is changed
 
-- name: Migrate OpenVAS database to current version
-  ansible.builtin.command: gvmd --migrate
-  become: yes
-  become_user: _gvm
-  async: 300
-  poll: 5
-  register: gvm_migrate_result
-  failed_when: 
-    - gvm_migrate_result.rc != 0 
-    - "'already up to date' not in gvm_migrate_result.stderr"
+#################### If we already have OpenVAS in the Image, we need this task to update and DB to the latest version (Sometimes best to reinstall OpenVAS) ###########
+#- name: Migrate OpenVAS database to current version
+#  ansible.builtin.command: gvmd --migrate
+#  become: yes
+#  become_user: _gvm
+#  async: 300
+#  poll: 5
+#  register: gvm_migrate_result
+#  failed_when: 
+#    - gvm_migrate_result.rc != 0 
+#    - "'already up to date' not in gvm_migrate_result.stderr"
+#
+#- name: Wait for gvmd to stabilize after migration
+#  ansible.builtin.pause:
+#    seconds: 10
 
 - name: Change OpenVAS admin password
   command: sudo -u _gvm gvmd --user=admin --new-password=admin
@@ -222,14 +293,17 @@
   poll: 0     # we do not wait for it to complete to continue with the playbook
   register: gvm_feed_sync_output
 
-#- name: Start OpenVAS service
-#  command: gvm-start
-- name: Ensure gvmd service is running
-  ansible.builtin.service:
-    name: gvmd
-    state: started
-    enabled: yes
+- name: Start OpenVAS service
+  command: gvm-start
 
+#- name: Ensure gvmd service is running
+#  ansible.builtin.service:
+#    name: gvmd
+#    state: started
+#    enabled: yes
+
+
+######################## Install Metasploit #################################
 - name: Metasploit Install Python packages for automation
   pip:
     name: 
@@ -237,72 +311,119 @@
       - python-gvm
     executable: /opt/caldera/venv/bin/pip3
 
-- name: Ensure PostgreSQL service is running and enabled
-  systemd:
-    name: postgresql
-    state: started
-    enabled: yes
-    
-- name: Initialize Metasploit Database
-  command: msfdb init
-  args:
-    creates: /usr/share/metasploit-framework/config/database.yml
-
 - name: Ensure Python DB driver is installed (Debian/Ubuntu)
   apt:
     name: python3-psycopg2
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+    
+- name: Initialize Metasploit Database
+  command: msfdb init --non-interactive
+  become: yes
+  register: msf_init
+  # This makes sure the task is idempotent
+  changed_when: "'already' not in msf_init.stdout"
 
-- name: Ensure community.postgresql collection is available (run locally beforehand)
-  ansible.builtin.debug:
-    msg: "Make sure you ran: ansible-galaxy collection install community.postgresql"
-  changed_when: false
-
-- name: Ensure PostgreSQL user 'msf' exists with password
+- name: Set specific password for MSF user (for msfrpcd scripts)
   become: yes
   become_user: postgres
   postgresql_user:
     name: msf
-    password: "msfpassword"
-    role_attr_flags: LOGIN
-    expires: infinity
+    password: "msfpassword" # Set your required password here
     state: present
-    
-- name: Create .msf4 directory
-  file:
-    path: "{{ ansible_env.HOME }}/.msf4"
+
+- name: Run Metasploit DB status check (forces migration if needed)
+  command: msfconsole -q -x "db_status; exit"
+  register: msf_migrate
+  changed_when: "'connected to' in msf_migrate.stdout"
+
+- name: Start msfrpcd for Metasploit RPC
+#  command: msfrpcd -P "msfpassword" -n -a 127.0.0.1 -p 55553
+  shell: "msfrpcd -P msfpassword -n -a 127.0.0.1 -p 55553 -S -f &"
+  async: 10
+  poll: 0
+
+
+##################### Install Docker Compose #########################################
+- name: Install Docker prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - smbclient
+      - cifs-utils
+      - unzip
+    state: present
+    update_cache: yes
+
+- name: Create /etc/apt/keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
     state: directory
     mode: '0755'
 
-- name: Create Metasploit database.yml
-  copy:
-    dest: "{{ ansible_env.HOME }}/.msf4/database.yml"
-    content: |
-      development: &pgsql
-        adapter: postgresql
-        database: msf
-        username: msf
-        password: msfpassword
-        host: localhost
-        port: 5432
-        pool: 5
-        timeout: 5
-      test:
-        <<: *pgsql
-        database: msf_test
-        production:
-        <<: *pgsql
+- name: Install Docker and Dependencies from Kali Repos
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - python3-docker
+      - docker-compose
+    state: present
+    update_cache: yes
 
-#- name: Copy database.yml to global Metasploit config
-#  copy:
-#    src: "{{ ansible_env.HOME }}/.msf4/database.yml"
-#    dest: /usr/share/metasploit-framework/config/database.yml
-#    remote_src: true
-#    owner: root
-#    group: root
-#    mode: "0644"
+- name: Ensure Docker service is started and enabled
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: yes
 
-- name: Start msfrpcd for Metasploit RPC
-  command: msfrpcd -P "msfpassword" -n -a 127.0.0.1 -p 55553
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: debian
+    groups: docker
+    append: yes
+
+- name: Login to Docker Hub
+  community.docker.docker_login:
+    username: demongsoc
+    password: "dckr_pat_OzOR3rfLKW3QcFAFUfAi_Je_5_Q"
+
+- name: Deploy neo4j docker
+  community.docker.docker_container:
+    name: neo4j_instance
+    image: neo4j:latest
+    state: started
+    restart_policy: always
+    ports: 
+      - "7474:7474"
+      - "7687:7687"
+    env:
+      NEO4J_AUTH: neo4j/admin
+      NEO4J_dbms_security_auth__minimum__password__length: "2"
+    volumes:
+      - "neo4j_data:/data"
+  register: neo4j_output
+
+- name: Wait for Neo4j to be ready (Bolt port)
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host | default('localhost') }}"
+    port: 7687
+    delay: 5
+    timeout: 120
+    state: started
+    msg: "Neo4j Bolt port is not listening after 2 minutes"
+
+- name: Create second user named 'admin'
+  ansible.builtin.shell: |
+    docker exec -i neo4j_instance bin/cypher-shell -u neo4j -p admin "
+      CREATE USER admin IF NOT EXISTS 
+      SET PASSWORD 'admin' 
+      CHANGE NOT REQUIRED;"
+  changed_when: true
+  register: create_user
+  failed_when: "'already exists' not in create_user.stdout and create_user.rc != 0"
+
+- name: Show Docker Compose output
+  ansible.builtin.debug:
+    msg: |
+      Neo4j: {{neo4j_output | default('No output caprured') }}
