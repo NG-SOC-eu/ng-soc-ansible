@@ -250,6 +250,11 @@
           sys.exit(1)
       sys.exit(0)
 
+- name: Remove any pre-existing custom-iris.py file (replaced by symlink)
+  ansible.builtin.file:
+    path: /var/ossec/integrations/custom-iris.py
+    state: absent
+
 - name: Create custom-iris.py symlink for Wazuh integratord
   ansible.builtin.file:
     src: /var/ossec/integrations/custom-iris
