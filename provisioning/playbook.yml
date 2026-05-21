@@ -23,7 +23,7 @@
   roles:
     - victim
 
-- name: Configure hosts file
+- name: Configure to all systems (logging, hosts, etc)
   hosts: all
   become: true
   roles:
