@@ -123,32 +123,21 @@
       iris_api_key is not set in hostvars['docker-server'].
       Same checklist as above.
 
-# ── Step 1: show surrounding context for debugging ────────────────────────────
-- name: Show lines 330-345 of ossec.conf (around the XML junk)
-  ansible.builtin.command:
-    cmd: sed -n '330,345p' /var/ossec/etc/ossec.conf
-  register: ossec_junk_lines
-  changed_when: false
-
-- name: Display junk area
-  ansible.builtin.debug:
-    var: ossec_junk_lines.stdout_lines
-
-# ── Step 2: fix quoted values in pre-existing integration blocks ──────────────
+# ── Fix quoted values in pre-existing integration blocks ──────────────
 - name: Fix quoted XML values in pre-existing integrations
   ansible.builtin.shell: |
     sed -i 's|>"\(.*\)"<|>\1<|g' /var/ossec/etc/ossec.conf
     echo "done"
   changed_when: true
 
-# ── Step 3: remove any previous ANSIBLE MANAGED integration block ─────────────
+# ── Remove any previous ANSIBLE MANAGED integration block ─────────────
 - name: Remove any previous ANSIBLE MANAGED integration block
   ansible.builtin.blockinfile:
     path: /var/ossec/etc/ossec.conf
     marker: "<!-- {mark} ANSIBLE MANAGED CYBERRANGE INTEGRATIONS -->"
     state: absent
 
-# ── Step 4: strip stray content after last </ossec_config> ───────────────────
+# ── Strip stray content after last </ossec_config> ───────────────────
 - name: Strip any stray content after last closing tag
   ansible.builtin.shell: |
     python3 << 'EOF'
@@ -167,38 +156,7 @@
   register: fix_structure
   changed_when: true
 
-- name: Show structure fix result
-  ansible.builtin.debug:
-    var: fix_structure.stdout_lines
-
-# ── Step 5: diagnose and validate ossec.conf ──────────────────────────────────
-- name: Diagnose ossec.conf accessibility and verify-agent-conf usage
-  ansible.builtin.shell: |
-    echo "=== File exists and perms ==="
-    ls -la /var/ossec/etc/ossec.conf
-    echo "=== File size ==="
-    wc -l /var/ossec/etc/ossec.conf
-    echo "=== Last 5 lines ==="
-    tail -5 /var/ossec/etc/ossec.conf
-    echo "=== verify-agent-conf help ==="
-    /var/ossec/bin/verify-agent-conf --help 2>&1 || true
-    echo "=== try with no -f flag (default path) ==="
-    /var/ossec/bin/verify-agent-conf 2>&1 || true
-    echo "=== try with full absolute path ==="
-    /var/ossec/bin/verify-agent-conf -f /var/ossec/etc/ossec.conf 2>&1 || true
-    echo "=== current user ==="
-    whoami
-  args:
-    chdir: /var/ossec
-  register: ossec_diag
-  changed_when: false
-  failed_when: false
-
-- name: Show diagnosis
-  ansible.builtin.debug:
-    var: ossec_diag.stdout_lines
-
-# ── Step 6: deploy custom-iris integration script ─────────────────────────────
+# ── Deploy custom-iris integration script ─────────────────────────────
 - name: Ensure Wazuh integrations directory exists
   ansible.builtin.file:
     path: /var/ossec/integrations
@@ -261,7 +219,7 @@
     dest: /var/ossec/integrations/custom-iris.py
     state: link
 
-# ── Step 7: inject our integration block ──────────────────────────────────────
+# ── Inject our integration block ──────────────────────────────────────
 - name: Inject MISP and DFIR-IRIS integrations into ossec.conf
   ansible.builtin.blockinfile:
     path: /var/ossec/etc/ossec.conf
@@ -285,7 +243,7 @@
         <alert_format>json</alert_format>
       </integration>
 
-# ── Step 8: final validation ──────────────────────────────────────────────────
+# ── Final validation and apply ──────────────────────────────────────────────────
 - name: Validate ossec.conf after integration injection
   ansible.builtin.shell: |
     result=$(/var/ossec/bin/verify-agent-conf 2>&1)
@@ -299,16 +257,11 @@
   register: ossec_xml_final
   changed_when: false
 
-- name: Show final validation
-  ansible.builtin.debug:
-    var: ossec_xml_final.stdout
-
 - name: FAIL if ossec.conf has errors after injection
   ansible.builtin.fail:
     msg: "ossec.conf failed after injection: {{ ossec_xml_final.stdout }}"
   when: "'CONF_ERROR' in ossec_xml_final.stdout"
 
-# ── Step 9: restart and verify ────────────────────────────────────────────────
 - name: Fix ossec.conf permissions after Python write
   ansible.builtin.file:
     path: /var/ossec/etc/ossec.conf
@@ -316,68 +269,3 @@
     group: wazuh
     mode: '0660'
 
-- name: Check if syslog integration is enabled in ossec.conf
-  ansible.builtin.command:
-    cmd: grep -n "csyslog\|syslog" /var/ossec/etc/ossec.conf
-  register: syslog_check
-  changed_when: false
-  failed_when: false
-
-- name: Show syslog config
-  ansible.builtin.debug:
-    var: syslog_check.stdout_lines
-
-- name: Check wazuh-manager status before restart
-  ansible.builtin.command:
-    cmd: systemctl status wazuh-manager
-  register: wazuh_status_pre
-  changed_when: false
-  failed_when: false
-
-- name: Show pre-restart status
-  ansible.builtin.debug:
-    var: wazuh_status_pre.stdout_lines
-
-- name: Check ossec.conf for integration block (confirm injection)
-  ansible.builtin.command:
-    cmd: grep -n "integration\|hook_url\|api_key\|custom-iris\|misp" /var/ossec/etc/ossec.conf
-  register: ossec_grep
-  changed_when: false
-  failed_when: false
-
-- name: Show integration lines in ossec.conf
-  ansible.builtin.debug:
-    var: ossec_grep.stdout_lines
-
-- name: Check wazuh-manager logs for startup error
-  ansible.builtin.command:
-    cmd: journalctl -u wazuh-manager -n 30 --no-pager
-  register: wazuh_journal_pre
-  changed_when: false
-  failed_when: false
-
-- name: Show journal
-  ansible.builtin.debug:
-    var: wazuh_journal_pre.stdout_lines
-
-- name: Check ossec.log for errors
-  ansible.builtin.command:
-    cmd: tail -30 /var/ossec/logs/ossec.log
-  register: ossec_log
-  changed_when: false
-  failed_when: false
-
-- name: Show ossec.log tail
-  ansible.builtin.debug:
-    var: ossec_log.stdout_lines
-
-- name: Try starting wazuh-manager and capture output
-  ansible.builtin.command:
-    cmd: /var/ossec/bin/wazuh-control start
-  register: wazuh_start_attempt
-  changed_when: false
-  failed_when: false
-
-- name: Show start attempt output
-  ansible.builtin.debug:
-    var: wazuh_start_attempt.stdout_lines
