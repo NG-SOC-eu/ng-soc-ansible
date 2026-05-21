@@ -260,8 +260,6 @@
     src: /var/ossec/integrations/custom-iris
     dest: /var/ossec/integrations/custom-iris.py
     state: link
-    owner: root
-    group: wazuh
 
 # ── Step 7: inject our integration block ──────────────────────────────────────
 - name: Inject MISP and DFIR-IRIS integrations into ossec.conf
