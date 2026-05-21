@@ -31,6 +31,9 @@
 # that doesn't exist yet — touch them first so the inode is present at rsyslog startup.
 - name: Pre-create MSF history files before sandbox-logging
   ansible.builtin.shell: |
+    # imfile PersistStateInterval writes state files to /var/lib/rsyslog/
+    # If that directory is missing, rsyslog crashes with a fatal signal on restart
+    mkdir -p /var/lib/rsyslog
     for f in \
       /root/.msf4/history \
       /var/lib/postgresql/.msf4/history \
