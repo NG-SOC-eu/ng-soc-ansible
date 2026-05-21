@@ -236,6 +236,9 @@
     container: misp-docker-misp-core-1
     command: "/var/www/MISP/app/Console/cake user change_authkey admin@admin.test"
   register: misp_user_info
+  until: misp_user_info.rc == 0
+  retries: 18
+  delay: 10
 
 - name: Save MISP API key fact
   set_fact:
