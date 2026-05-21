@@ -24,7 +24,7 @@
     - victim
 
 - name: Configure hosts file
-  hosts: hosts
+  hosts: all
   become: true
   roles:
     - all
