@@ -5,6 +5,11 @@
     password: "$y$j9T$r1LaddN0V6MPqFmZl5U7C/$4xbYJL5zi/YFU85SL/gXz5UXs3JAXV5dU5CUvTN/WN9"
     update_password: always
 
+- name: Save docker-server internal (topology) IP fact
+  ansible.builtin.set_fact:
+    docker_server_internal_ip: "{{ ansible_all_ipv4_addresses | select('match', '^10\\.') | first }}"
+    cacheable: yes
+
 - name: Install Docker prerequisites
   ansible.builtin.apt:
     name:
@@ -243,11 +248,6 @@
 - name: Save MISP API key fact
   set_fact:
     misp_api_key: "{{ misp_user_info.stdout.split('Old authentication keys disabled and new key created: ')[1] | trim }}"
-    cacheable: yes
-
-- name: Save docker-server internal (topology) IP fact
-  ansible.builtin.set_fact:
-    docker_server_internal_ip: "{{ ansible_all_ipv4_addresses | select('match', '^10\\.') | first }}"
     cacheable: yes
 
 - name: Inject MISP integration settings into DFIR-IRIS .env
