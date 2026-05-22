@@ -13,7 +13,8 @@
   lineinfile:
     path: /etc/hosts
     # This looks up the IP of 'ng-siem' from the inventory
-    line: "{{ hostvars['ng-siem']['ansible_ens4']['ipv4']['address'] }} {{ item }}"
+    #line: "{{ hostvars['ng-siem']['ansible_ens4']['ipv4']['address'] }} {{ item }}"
+    line: "{{ hostvars['ng-siem']['ansible_all_ipv4_addresses'] | select('match', '^10\\.') | first }} {{ item }}"
     #line: "10.0.16.60 {{ item }}"
     regexp: ".*{{ item }}$"
     state: present
