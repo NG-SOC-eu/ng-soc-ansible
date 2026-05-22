@@ -25,6 +25,8 @@
     - iframe.mini.ngsiem.sph.gr
     - wazuh-dashboard.kafka.mini.ngsiem.sph.gr
     - app.mini.ngsiem.sph.gr
+  when:
+    - inventory_hostname != 'ng-siem'
 
 # libfastjson4 on Kali was compiled without -lm. The dynamic linker's IFUNC resolver
 # for modf() requires libm to be present in DT_NEEDED at load time — without it,
