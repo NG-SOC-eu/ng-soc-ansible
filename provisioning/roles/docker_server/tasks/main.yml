@@ -237,19 +237,24 @@
     command: "/var/www/MISP/app/Console/cake user change_authkey admin@admin.test"
   register: misp_user_info
   until: misp_user_info.rc == 0
-  retries: 30
-  delay: 15
+  retries: 18
+  delay: 10
 
 - name: Save MISP API key fact
   set_fact:
     misp_api_key: "{{ misp_user_info.stdout.split('Old authentication keys disabled and new key created: ')[1] | trim }}"
     cacheable: yes
 
+- name: Save docker-server internal (topology) IP fact
+  ansible.builtin.set_fact:
+    docker_server_internal_ip: "{{ ansible_all_ipv4_addresses | select('match', '^10\\.') | first }}"
+    cacheable: yes
+
 - name: Inject MISP integration settings into DFIR-IRIS .env
   lineinfile:
     path: /opt/dfir-iris-custom/.env
     regexp: '^IRIS_MISP_URL='
-    line: "IRIS_MISP_URL=https://{{ ansible_all_ipv4_addresses | select('match', '^10\\.') | first }}:8443"
+    line: "IRIS_MISP_URL=https://{{ docker_server_internal_ip }}:8443"
     state: present
 
 - name: Disable SSL verification for MISP connection
