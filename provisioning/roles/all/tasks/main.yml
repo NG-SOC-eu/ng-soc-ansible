@@ -9,13 +9,19 @@
 #    - "10.0.19.147 iframe.ngsoc.gr"
 #    - "10.0.19.147 app.pandorasph.gr"
 #
+- name: Cache ng-siem internal IP for use by other hosts
+  ansible.builtin.set_fact:
+    ng_siem_internal_ip: "{{ ansible_all_ipv4_addresses | select('match', '^10\\.') | first }}"
+    cacheable: yes
+  when: inventory_hostname == 'ng-siem'
+
 - name: Add Wazuh FQDNs to /etc/hosts
   lineinfile:
     path: /etc/hosts
     # This looks up the IP of 'ng-siem' from the inventory
     #line: "{{ hostvars['ng-siem']['ansible_ens4']['ipv4']['address'] }} {{ item }}"
-    line: "{{ hostvars['ng-siem']['ansible_all_ipv4_addresses'] | select('match', '^10\\.') | first }} {{ item }}"
     #line: "10.0.16.60 {{ item }}"
+    line: "{{ hostvars['ng-siem']['ng_siem_internal_ip'] }} {{ item }}"
     regexp: ".*{{ item }}$"
     state: present
   loop:
