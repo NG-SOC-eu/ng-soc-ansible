@@ -28,9 +28,9 @@
 
 - name: Install latest Wazuh agent
   environment:
-    WAZUH_MANAGER: "10.0.16.70"
+    WAZUH_MANAGER: "{{ hostvars['ng-siem'].ng_siem_internal_ip }}"
     WAZUH_MANAGER_PORT: "1514"
-    WAZUH_REGISTRATION_SERVER: "10.0.16.70"
+    WAZUH_REGISTRATION_SERVER: "{{ hostvars['ng-siem'].ng_siem_internal_ip }}"
     WAZUH_REGISTRATION_PORT: "1515"
     WAZUH_REGISTRATION_PASSWORD: "admin"
     WAZUH_AGENT_NAME: "{{ current_hostname.stdout }}"
