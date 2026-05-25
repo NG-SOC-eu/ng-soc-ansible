@@ -26,18 +26,19 @@
     state: present
     filename: wazuh
 
-- name: Install Wazuh agent with the current dynamic hostname
+- name: Install latest Wazuh agent
   environment:
-    WAZUH_MANAGER: "10.0.19.147"
-    WAZUH_MANAGER_PORT: "31514"
-    WAZUH_REGISTRATION_SERVER: "10.0.19.147"
-    WAZUH_REGISTRATION_PORT: "31515"
+    WAZUH_MANAGER: "10.0.16.70"
+    WAZUH_MANAGER_PORT: "1514"
+    WAZUH_REGISTRATION_SERVER: "10.0.16.70"
+    WAZUH_REGISTRATION_PORT: "1515"
     WAZUH_REGISTRATION_PASSWORD: "admin"
     WAZUH_AGENT_NAME: "{{ current_hostname.stdout }}"
     WAZUH_AGENT_GROUP: "default"
   apt:
-    name: "wazuh-agent=4.4.0-1"
+    name: wazuh-agent
     state: present
+    update_cache: yes
 
 - name: Start and Enable Wazuh-agent service
   service:
