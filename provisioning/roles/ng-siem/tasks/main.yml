@@ -249,7 +249,7 @@
       <!-- Integration with CICMS (DFIR-IRIS) -->
       <integration>
         <name>custom-iris</name>
-        <hook_url>http://{{ hostvars['docker-server']['docker_server_internal_ip'] }}:8083/api/v1/alerts/add</hook_url>
+        <hook_url>https://{{ hostvars['docker-server']['docker_server_internal_ip'] }}:8083/api/v1/alerts/add</hook_url>
         <api_key>{{ hostvars['docker-server']['iris_api_key'] }}</api_key>
         <level>7</level>
         <alert_format>json</alert_format>
