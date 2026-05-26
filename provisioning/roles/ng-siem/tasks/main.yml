@@ -101,10 +101,15 @@
     enabled: yes
   register: native_dash_status
 
+- name: Save docker-server internal (topology) IP fact
+  ansible.builtin.set_fact:
+    docker_server_internal_ip: "{{ ansible_all_ipv4_addresses | select('match', '^10\\.') | first }}"
+    cacheable: yes
+
 - name: Save ng-siem internal (topology) IP fact
   ansible.builtin.set_fact:
     ng_siem_internal_ip: "{{ ansible_all_ipv4_addresses | select('match', '^10\\.') | first }}"
-  cacheable: yes
+    cacheable: yes
 
 ## API Key Integrations ───────────────────────────────────────────────────────────────────
 # ── Verify facts arrived from docker-server role ──────────────────────────────
