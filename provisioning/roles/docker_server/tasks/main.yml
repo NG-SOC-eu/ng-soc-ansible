@@ -468,6 +468,95 @@
       Check which column holds the key in the iris_db user table.
   when: iris_api_key is not defined or iris_api_key | trim == ''
 
+# ── Configure DFIR-IRIS modules via database ─────────────────────────────────
+
+- name: Write IRIS module configuration script
+  ansible.builtin.copy:
+    dest: /tmp/iris_configure_modules.py
+    mode: '0755'
+    content: |
+      #!/usr/bin/env python3
+      # module_config is a JSON array of {param_name, value, ...} objects.
+      # Fetch the array, patch the target element, write it back.
+      import subprocess, json
+
+      def psql_fetch(q):
+          r = subprocess.run(
+              ['docker','exec','iris_db','psql','-U','postgres','-d','iris_db','-t','-A','-c', q],
+              capture_output=True, text=True)
+          return r.stdout.strip()
+
+      def psql_exec(q):
+          r = subprocess.run(
+              ['docker','exec','iris_db','psql','-U','postgres','-d','iris_db','-c', q],
+              capture_output=True, text=True)
+          return r.returncode, r.stdout.strip() or r.stderr.strip()
+
+      updates = [
+          (
+              "iris_misp_module", "misp_config",
+              json.dumps({
+                  "name": "Public_MISP",
+                  "type": "public",
+                  "url":  ["https://{{ docker_server_internal_ip }}:8443"],
+                  "key":  ["{{ misp_api_key }}"],
+                  "ssl":  [False]
+              }, indent=2)
+          ),
+          (
+              "iris_webhooks_module", "wh_configuration",
+              json.dumps({
+                  "webhooks": [{
+                      "name":       "SOARCA",
+                      "url":        "http://{{ docker_server_internal_ip }}:8080/trigger/playbook",
+                      "method":     "POST",
+                      "trigger_on": ["alert_created", "case_created"]
+                  }]
+              }, indent=2)
+          ),
+      ]
+
+      for module_name, param_name, new_value in updates:
+          raw = psql_fetch(f"SELECT module_config FROM iris_module WHERE module_name = '{module_name}';")
+          if not raw:
+              print(f"SKIP: {module_name} not found"); continue
+          config = json.loads(raw)
+          for param in config:
+              if param.get('param_name') == param_name:
+                  param['value'] = new_value
+                  break
+          else:
+              print(f"SKIP: param '{param_name}' not found in {module_name}"); continue
+          safe = json.dumps(config).replace("'", "''")
+          rc, out = psql_exec(
+              f"UPDATE iris_module SET module_config = '{safe}'::json "
+              f"WHERE module_name = '{module_name}';"
+          )
+          print(f"{'OK' if rc == 0 else 'FAIL'}: {module_name}/{param_name} → {out}")
+
+- name: Apply IRIS module configurations
+  ansible.builtin.command: python3 /tmp/iris_configure_modules.py
+  register: iris_module_config
+  changed_when: true
+
+- name: Show module config results
+  ansible.builtin.debug:
+    msg: "{{ iris_module_config.stdout_lines }}"
+
+- name: Restart iris_app to reload module configurations
+  ansible.builtin.command: docker restart iris_app
+  changed_when: true
+
+- name: Wait for iris_app to be healthy after module config restart
+  community.docker.docker_container_info:
+    name: iris_app
+  register: iris_app_info2
+  until: iris_app_info2.container.State.Health.Status == "healthy"
+  retries: 36
+  delay: 5
+
+# ── Unmount ───────────────────────────────────────────────────────────────────
+
 - name: Unmount SMB share
   ansible.builtin.mount:
     path: "/mnt/smb_shared"
