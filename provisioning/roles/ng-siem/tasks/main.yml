@@ -143,6 +143,27 @@
     echo "done"
   changed_when: true
 
+# ── Remove stale pre-existing IRIS integration block (not Ansible-managed) ────
+- name: Remove stale custom-wazuh_iris integration block if present
+  ansible.builtin.shell: |
+    python3 - << 'PYEOF'
+    import re
+    with open('/var/ossec/etc/ossec.conf', 'r') as f:
+        content = f.read()
+    cleaned = re.sub(
+        r'\s*<!--\s*IRIS integration\s*-->\s*<integration>.*?</integration>',
+        '', content, flags=re.DOTALL
+    )
+    if cleaned != content:
+        with open('/var/ossec/etc/ossec.conf', 'w') as f:
+            f.write(cleaned)
+        print('removed')
+    else:
+        print('not_found')
+    PYEOF
+  register: stale_block_removal
+  changed_when: "'removed' in stale_block_removal.stdout"
+
 # ── Remove any previous ANSIBLE MANAGED integration block ─────────────────────
 - name: Remove any previous ANSIBLE MANAGED integration block
   ansible.builtin.blockinfile:
@@ -202,6 +223,7 @@
           "alert_source_link": "",
           "alert_severity_id": 2,
           "alert_status_id":   2,
+          "alert_customer_id": 1,
           "alert_source_content": alert,
           "alert_context": {
               "agent_name":  agent.get("name", ""),
