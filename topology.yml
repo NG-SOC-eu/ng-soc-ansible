@@ -1,0 +1,27 @@
+name: winserver
+hosts:
+  - name: win-server
+    base_box:
+      image: windows-server-2019
+      mgmt_user: windows
+      mgmt_protocol: winrm
+    flavor: standard.xmedium
+routers:
+  - name: rep-gateway
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+    flavor: standard.small
+networks:
+  - name: rep-frontend
+    cidr: 10.20.20.0/24
+    accessible_by_user: True
+net_mappings:
+  - host: win-server
+    network: rep-frontend
+    ip: 10.20.20.50
+router_mappings:
+  - router: rep-gateway
+    network: rep-frontend
+    ip: 10.20.20.1
+groups: []

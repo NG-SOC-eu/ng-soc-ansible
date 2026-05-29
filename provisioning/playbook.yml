@@ -1,0 +1,6 @@
+---
+- name: Configure Windows
+  hosts: win-server
+  gather_facts: no
+  roles:
+    - windows
