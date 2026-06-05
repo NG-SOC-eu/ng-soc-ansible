@@ -29,6 +29,12 @@
   roles:
     - all
 
+- name: Changing syslog-ng on man
+  hosts: man
+  become: yes
+  roles:
+    - man
+
 - name: set up command logging
   hosts: all
   become: yes
