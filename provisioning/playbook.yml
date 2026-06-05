@@ -1,15 +1,15 @@
 ---
-- name: Configuring Docker-Server
-  hosts: docker-server
-  become: yes
-  roles:
-    - docker_server
+#- name: Configuring Docker-Server
+#  hosts: docker-server
+#  become: yes
+#  roles:
+#    - docker_server
 
-- name: Configuring NG-SIEM
-  hosts: ng-siem
-  become: yes
-  roles:
-    - ng-siem
+#- name: Configuring NG-SIEM
+#  hosts: ng-siem
+#  become: yes
+#  roles:
+#    - ng-siem
 
 - name: Configure Kali
   hosts: kali
@@ -29,10 +29,10 @@
   roles:
     - all
 
-#- name: set up command logging
-#  hosts: all
-#  become: yes
-#  roles:
-#    - role: sandbox-logging
-#      slf_destination_port: '{% if hostvars["man"] is defined -%} 514 {%- else -%} 515 {%- endif %}'
-#      when: ansible_system == "Linux"
+- name: set up command logging
+  hosts: all
+  become: yes
+  roles:
+    - role: sandbox-logging
+      slf_destination_port: '{% if hostvars["man"] is defined -%} 514 {%- else -%} 515 {%- endif %}'
+      when: ansible_system == "Linux"
