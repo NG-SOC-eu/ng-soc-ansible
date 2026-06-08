@@ -206,36 +206,64 @@
     mode: '0750'
     content: |
       #!/usr/bin/env python3
-      import sys, json, requests, urllib3
+      import sys, json, requests, urllib3, hashlib
+      from datetime import datetime, timezone
       urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-      alert_file = sys.argv[1]
-      api_key    = sys.argv[2]
-      hook_url   = sys.argv[3]
+
+      alert_file, api_key, hook_url = sys.argv[1], sys.argv[2], sys.argv[3]
+      
       with open(alert_file) as f:
           alert = json.load(f)
-      rule  = alert.get("rule", {})
+      
+      rule = alert.get("rule", {})
+      rule_id = str(rule.get("id", ""))
       agent = alert.get("agent", {})
+      data = alert.get("data", {})
+      
+      # 1. DYNAMIC CASE DEDUPLICATION LOGIC
+      # Extract identifiers to create a unique fingerprint (e.g., source IP, file hash, or user)
+      source_ip = data.get("srcip", "unknown-ip")
+      dst_user = data.get("dstuser", "unknown-user")
+      sha256 = data.get("misp", {}).get("source", {}).get("sha256", "no-hash")
+      
+      # Create a unique tracking identifier
+      case_soc_id = f"WAZUH-{rule_id}-{source_ip}-{dst_user}-{sha256}"
+      base_url = "/".join(hook_url.split("/")[:3]) # Automatically extracts https://<IP>:<PORT>
+      
+      # Check IRIS to ensure we aren't creating a duplicate case
+      try:
+          check_r = requests.get(f"{base_url}/manage/cases/list", headers={"Authorization": f"Bearer {api_key}"}, verify=False, timeout=10)
+          if check_r.status_code == 200:
+              existing_cases = check_r.json().get("data", [])
+              if any(c.get("case_soc_id") == case_soc_id for c in existing_cases):
+                  sys.exit(0) # Silent exit! Case already being investigated.
+      except Exception:
+          pass # Fallback to creation if list fails
+
+      # 2. SEVERITY MAPPING LOGIC
+      level = int(rule.get("level", 0))
+      severity_id = 5 if level >= 12 else (4 if level >= 10 else (3 if level >= 7 else 2))
+
+      # 3. ADVANCED MITRE TAGGING
+      mitre = rule.get("mitre", {})
+      case_tags = ["wazuh", f"rule-{rule_id}"]
+      case_tags.extend(mitre.get("id", []))
+      case_tags.extend([t.replace(" ", "-").lower() for t in mitre.get("tactic", [])])
+
+      # Send directly to the advanced Case creation endpoint instead of basic alerts
+      case_url = f"{base_url}/manage/cases/add"
       payload = {
-          "alert_title":       rule.get("description", "Wazuh Alert"),
-          "alert_description": json.dumps(alert, indent=2),
-          "alert_source":      "Wazuh",
-          "alert_source_ref":  alert.get("id", ""),
-          "alert_source_link": "",
-          "alert_severity_id": 2,
-          "alert_status_id":   2,
-          "alert_customer_id": 1,
-          "alert_source_content": alert,
-          "alert_context": {
-              "agent_name":  agent.get("name", ""),
-              "agent_id":    agent.get("id", ""),
-              "rule_id":     rule.get("id", ""),
-              "rule_level":  rule.get("level", 0),
-              "rule_groups": rule.get("groups", []),
-          }
+          "case_soc_id": case_soc_id,
+          "case_customer": 1,
+          "case_name": f"[{rule_id}] {rule.get('description', 'Wazuh Alert')} on {agent.get('name', 'Agent')}",
+          "case_description": f"Rule Level: {level}\nAgent IP: {agent.get('ip', 'N/A')}\n\nFull JSON:\n{json.dumps(alert, indent=2)}",
+          "severity_id": str(severity_id),
+          "case_tags": ",".join(case_tags)
       }
+
       headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
       try:
-          r = requests.post(hook_url, json=payload, headers=headers, verify=False, timeout=10)
+          r = requests.post(case_url, json=payload, headers=headers, verify=False, timeout=10)
           r.raise_for_status()
       except requests.exceptions.RequestException as e:
           print(f"ERROR: {e}", file=sys.stderr)
