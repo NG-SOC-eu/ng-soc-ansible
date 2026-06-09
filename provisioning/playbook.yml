@@ -36,7 +36,9 @@
     - man
 
 - name: set up command logging
-  hosts: all
+  hosts: 
+    - routers
+    - hosts
   become: yes
   roles:
     - role: sandbox-logging
