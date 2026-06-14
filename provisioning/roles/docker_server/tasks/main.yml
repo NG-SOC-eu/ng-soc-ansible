@@ -712,14 +712,14 @@
 
 - name: Patch SACTI config.py — set MISP_KEY
   ansible.builtin.lineinfile:
-    path: /opt/sacti/config.py
+    path: /opt/sacti/sacti/config.py
     regexp: '^MISP_KEY\s*='
     line: "MISP_KEY = '{{ misp_api_key }}'"
     state: present
 
 - name: Patch SACTI config.py — set MISP_URL
   ansible.builtin.lineinfile:
-    path: /opt/sacti/config.py
+    path: /opt/sacti/sacti/config.py
     regexp: '^MISP_URL\s*='
     line: "MISP_URL = 'https://{{ docker_server_internal_ip }}:8443'"
     state: present
