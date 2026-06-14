@@ -564,7 +564,7 @@
 
 - name: Install misp-mcp Python package
   ansible.builtin.pip:
-    name: misp-mcp
+    name: "git+https://github.com/misp/misp-mcp.git"
     executable: pip3
     extra_args: --break-system-packages
 
