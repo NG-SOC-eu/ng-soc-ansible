@@ -678,6 +678,7 @@
     repo: "https://github.com/open-quantum-safe/liboqs.git"
     dest: /opt/liboqs
     version: main
+    force: yes
 
 - name: Build and install liboqs shared library
   ansible.builtin.shell: |
@@ -696,6 +697,7 @@
   git:
     repo: "https://github.com/COSSAS/SACTI.git"
     dest: /opt/sacti
+    force: yes
 
 - name: Create SACTI Python virtual environment
   command:
@@ -722,6 +724,20 @@
     path: /opt/sacti/sacti/config.py
     regexp: '^MISP_URL\s*='
     line: "MISP_URL = 'https://{{ docker_server_internal_ip }}:8443'"
+    state: present
+
+- name: Patch SACTI config.py — update Sig_Alg for liboqs 0.10+ (Dilithium2 → ML-DSA-44)
+  ansible.builtin.lineinfile:
+    path: /opt/sacti/sacti/config.py
+    regexp: '^Sig_Alg\s*='
+    line: "Sig_Alg = 'ML-DSA-44'"
+    state: present
+
+- name: Patch SACTI config.py — update Kem_Alg for liboqs 0.10+ (Kyber512 → ML-KEM-512)
+  ansible.builtin.lineinfile:
+    path: /opt/sacti/sacti/config.py
+    regexp: '^Kem_Alg\s*='
+    line: "Kem_Alg = 'ML-KEM-512'"
     state: present
 
 - name: Run SACTI PKI setup (post-quantum key generation, one-time)
