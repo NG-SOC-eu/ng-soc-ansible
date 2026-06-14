@@ -566,7 +566,7 @@
   ansible.builtin.pip:
     name: "git+https://github.com/misp/misp-mcp.git"
     executable: pip3
-    extra_args: --break-system-packages
+    extra_args: --break-system-packages --ignore-installed
 
 - name: Write MISP MCP credentials file
   ansible.builtin.copy:
