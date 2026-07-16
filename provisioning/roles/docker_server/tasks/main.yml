@@ -734,6 +734,14 @@
         }
       }
 
+- name: Ensure AnythingLLM storage is owned by the container user (uid 1000)
+  ansible.builtin.file:
+    path: /opt/anythingllm
+    state: directory
+    owner: "1000"
+    group: "1000"
+    recurse: yes
+
 - name: Run AnythingLLM container (host port 4000)
   community.docker.docker_container:
     name: anythingllm
