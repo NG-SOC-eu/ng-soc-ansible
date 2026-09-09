@@ -15,25 +15,37 @@
     cacheable: yes
   when: inventory_hostname == 'ng-siem'
 
-- name: Add Wazuh FQDNs to /etc/hosts
-  lineinfile:
-    path: /etc/hosts
-    # This looks up the IP of 'ng-siem' from the inventory
-    #line: "{{ hostvars['ng-siem']['ansible_ens4']['ipv4']['address'] }} {{ item }}"
-    #line: "10.0.16.60 {{ item }}"
-    line: "{{ hostvars['ng-siem']['ng_siem_internal_ip'] }} {{ item }}"
-    regexp: ".*{{ item }}$"
-    state: present
-  loop:
-    - keycloak.kafka.mini.ngsiem.sph.gr
-    - misp.kafka.mini.ngsiem.sph.gr
-    - backend.mini.ngsiem.sph.gr
-    - navigator.mini.ngsiem.sph.gr
-    - iframe.mini.ngsiem.sph.gr
-    - wazuh-dashboard.kafka.mini.ngsiem.sph.gr
-    - app.mini.ngsiem.sph.gr
+- name: Add Wazuh FQDNs to hosts file
+  vars:
+    wazuh_fqdns:
+      - keycloak.kafka.mini.ngsiem.sph.gr
+      - misp.kafka.mini.ngsiem.sph.gr
+      - backend.mini.ngsiem.sph.gr
+      - navigator.mini.ngsiem.sph.gr
+      - iframe.mini.ngsiem.sph.gr
+      - wazuh-dashboard.kafka.mini.ngsiem.sph.gr
+      - app.mini.ngsiem.sph.gr
   when:
     - inventory_hostname != 'ng-siem'
+  block:
+    - name: Add Wazuh FQDNs to /etc/hosts (Linux)
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        # This looks up the IP of 'ng-siem' from the inventory
+        line: "{{ hostvars['ng-siem']['ng_siem_internal_ip'] }} {{ item }}"
+        regexp: ".*{{ item }}$"
+        state: present
+      loop: "{{ wazuh_fqdns }}"
+      when: ansible_system == "Linux"
+
+    - name: Add Wazuh FQDNs to hosts file (Windows)
+      ansible.windows.win_lineinfile:
+        path: C:\Windows\System32\drivers\etc\hosts
+        line: "{{ hostvars['ng-siem']['ng_siem_internal_ip'] }} {{ item }}"
+        regexp: ".*{{ item }}$"
+        state: present
+      loop: "{{ wazuh_fqdns }}"
+      when: ansible_system == "Win32NT"
 
 # libfastjson4 on Kali was compiled without -lm. The dynamic linker's IFUNC resolver
 # for modf() requires libm to be present in DT_NEEDED at load time — without it,
