@@ -35,6 +35,7 @@
   roles:
     - man
 
+## This tasks is inside the "all" play
 - name: set up command logging
   hosts: 
     - routers
