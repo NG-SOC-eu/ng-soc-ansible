@@ -339,8 +339,16 @@
     name: "httpcore>=1.0.6"
     extra_args: --break-system-packages
   become: yes
-  when: ansible_distribution == "Kali"
-  
+
+# The gvm* apt install above may have already started ospd-openvas, so it can be sitting in
+# a crash-looped/failed state. Clear it and restart now that httpcore is fixed, so gvm-setup
+# finds a healthy scanner.
+- name: Restart ospd-openvas now that httpcore is fixed
+  ansible.builtin.shell: |
+    systemctl reset-failed ospd-openvas 2>/dev/null || true
+    systemctl restart ospd-openvas
+  become: yes
+  changed_when: true  
 
 - name: Install OpenVAS (gvm-setup)
   command: gvm-setup --not-interactive
