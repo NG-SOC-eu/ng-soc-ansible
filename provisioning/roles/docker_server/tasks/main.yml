@@ -1,4 +1,4 @@
----
+---test
 - name: Set password on User ubuntu
   ansible.builtin.user:
     name: ubuntu
