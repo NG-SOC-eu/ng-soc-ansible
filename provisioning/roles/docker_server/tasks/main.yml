@@ -130,10 +130,10 @@
     remote_src: true
     extra_opts: ["-o"]
 
-- name: Ensure RITA Docker network exists
-  community.docker.docker_network:
-    name: rita-network
-    state: present
+#- name: Ensure RITA Docker network exists
+#  community.docker.docker_network:
+#    name: rita-network
+#    state: present
 
 #- name: Ensure NG-SOAR network exists
 #  community.docker.docker_network:
@@ -213,13 +213,13 @@
 #    state: present
 #    build: always
 #  register: frontend_compose_output
-    
-- name: Build and run RITA tools services
-  community.docker.docker_compose_v2:
-    project_src: "/opt/rita-docker/tools-containers"
-    state: present
-    build: always
-  register: tools_compose_output
+#    
+#- name: Build and run RITA tools services
+#  community.docker.docker_compose_v2:
+#    project_src: "/opt/rita-docker/tools-containers"
+#    state: present
+#    build: always
+#  register: tools_compose_output
 
 # Add it later
 #- name: Build and run DFIR-IRIS
