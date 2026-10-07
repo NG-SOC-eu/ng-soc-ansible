@@ -180,12 +180,38 @@
     insertafter: EOF
     backup: yes
 
-- name: Deployment of MISP Docker
+- name: Deployment of MISP Docker (first pass — misp-core may still be initialising)
   community.docker.docker_compose_v2:
     project_src: "/opt/misp-docker"
     state: present
 #    build: always
   register: misp_output
+  failed_when: false
+
+- name: Wait for misp-core container to become healthy (first boot is slow)
+  community.docker.docker_container_info:
+    name: misp-docker-misp-core-1
+  register: misp_core_info
+  until: >
+    misp_core_info.container is defined and
+    misp_core_info.container.State.Health.Status == "healthy"
+  retries: 60
+  delay: 15
+
+- name: Deployment of MISP Docker (second pass — misp-core healthy, start nginx)
+  community.docker.docker_compose_v2:
+    project_src: "/opt/misp-docker"
+    state: present
+#    build: always
+  register: misp_output
+
+
+#- name: Deployment of MISP Docker 
+#  community.docker.docker_compose_v2:
+#    project_src: "/opt/misp-docker"
+#    state: present
+##    build: always
+#  register: misp_output
 
 #- name: Deploy Portainer
 #  community.docker.docker_container:
