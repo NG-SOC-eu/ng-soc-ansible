@@ -85,7 +85,7 @@
 
 - name: Copy DFIR-IRIS zip from SMB to destination
   copy:
-    src: "/mnt/smb_shared/dfir-iris-custom.zip"
+    src: "/mnt/smb_shared/dfir-iris-custom-old.zip"
     dest: "/opt/dfir-iris-custom.zip"
     remote_src: true
     mode: "0644"
