@@ -345,8 +345,8 @@
     line: "{{ item.key }}={{ item.value }}"
     state: present
   loop:
-    - { key: POSTGRES_PASSWORD,       value: "IrisDbP@ss123" }
-    - { key: POSTGRES_ADMIN_PASSWORD, value: "IrisAdm1nP@ss123" }
+    - { key: POSTGRES_PASSWORD,       value: "IrisDbPass123" }
+    - { key: POSTGRES_ADMIN_PASSWORD, value: "IrisAdmPass123" }
 
 # Keep DFIR-IRIS on host port 8083 (original external port, no clash with MISP
 # 8443/8082). The base compose maps ${INTERFACE_HTTPS_PORT}:${INTERFACE_HTTPS_PORT}
