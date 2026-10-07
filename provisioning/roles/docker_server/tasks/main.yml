@@ -1,4 +1,4 @@
----test
+---
 - name: Set password on User ubuntu
   ansible.builtin.user:
     name: ubuntu
@@ -376,11 +376,13 @@
 
 # ── Wait for iris_app healthy ─────────────────────────────────────────────────
 
-- name: Wait for iris_app container to become healthy
+- name: Wait for iriswebapp_app container to be running
   community.docker.docker_container_info:
     name: iriswebapp_app
   register: iris_app_info
-  until: iris_app_info.container.State.Health.Status == "healthy"
+  until: >
+    iris_app_info.container is defined and
+    iris_app_info.container.State.Status == "running"
   retries: 36
   delay: 5
 
@@ -405,6 +407,18 @@
     state: started
     delay: 2
     timeout: 60
+
+- name: Wait for DFIR-IRIS web app to respond through nginx (app has no healthcheck)
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8083/login"
+    method: GET
+    validate_certs: false
+    status_code: [200, 302, 401, 403]
+    timeout: 10
+  register: iris_http_ready
+  until: iris_http_ready.status is defined and iris_http_ready.status in [200, 302, 401, 403]
+  retries: 60
+  delay: 5
 
 # ── Resolve DFIR-IRIS API key ─────────────────────────────────────────────────
 
@@ -563,12 +577,16 @@
   ansible.builtin.command: docker restart iriswebapp_app
   changed_when: true
 
-- name: Wait for iris_app to be healthy after module config restart
-  community.docker.docker_container_info:
-    name: iriswebapp_app
-  register: iris_app_info2
-  until: iris_app_info2.container.State.Health.Status == "healthy"
-  retries: 36
+- name: Wait for DFIR-IRIS web app to respond after module-config restart
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8083/login"
+    method: GET
+    validate_certs: false
+    status_code: [200, 302, 401, 403]
+    timeout: 10
+  register: iris_http_ready2
+  until: iris_http_ready2.status is defined and iris_http_ready2.status in [200, 302, 401, 403]
+  retries: 60
   delay: 5
 
 ######################## MISP MCP Server ######################################
