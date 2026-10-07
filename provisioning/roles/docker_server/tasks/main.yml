@@ -293,6 +293,20 @@
     line: "SESSION_COOKIE_SECURE=False"
     state: present
 
+- name: Inject NG-SOAR integration settings into DFIR-IRIS .env
+  ansible.builtin.lineinfile:
+    path: /opt/dfir-iris-custom/.env
+    regexp: '^{{ item.key }}='
+    line: "{{ item.key }}={{ item.value }}"
+    state: present
+  loop:
+    # cacao_roaster container from /opt/NG-SOAR (0.0.0.0:3000)
+    - { key: CACAO_ROASTER_URL, value: "http://{{ docker_server_internal_ip }}:3000" }
+    # soarca_server container from /opt/NG-SOAR (0.0.0.0:8080, plain HTTP)
+    - { key: SOARCA_URL,        value: "http://{{ docker_server_internal_ip }}:8080" }
+    # false = real runs through SOARCA, true = mocked demo output
+    - { key: NGSOAR_DEMO,       value: "false" }
+
 # ── Pre-generate TLS certs so nginx has them on first boot ───────────────────
 
 - name: Create nginx-certs directory on host
