@@ -5,11 +5,11 @@
   roles:
     - docker_server
 
-- name: Configuring NG-SIEM
-  hosts: ng-siem
-  become: yes
-  roles:
-    - ng-siem
+#- name: Configuring NG-SIEM
+#  hosts: ng-siem
+#  become: yes
+#  roles:
+#    - ng-siem
 
 - name: Configure Kali
   hosts: kali
@@ -17,11 +17,11 @@
   roles:
     - kali
 
-- name: Configuring victim PC
-  hosts: victim
-  become: yes
-  roles:
-    - victim
+#- name: Configuring victim PC
+#  hosts: victim
+#  become: yes
+#  roles:
+#    - victim
 
 - name: Configure to all systems (logging, hosts, etc)
   hosts: all
