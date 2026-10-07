@@ -10,16 +10,16 @@ hosts:
       image: ubuntu-noble-x86_64
       mgmt_user: ubuntu
     flavor: standard.xmedium
-  - name: ng-siem
-    base_box:
-      image: siemng
-      mgmt_user: ubuntu
-    flavor: standard.ngsiem
-  - name: victim
-    base_box:
-      image: ubuntu-noble-x86_64
-      mgmt_user: ubuntu
-    flavor: standard.small
+  #- name: ng-siem
+  #  base_box:
+  #    image: siemng
+  #    mgmt_user: ubuntu
+  #  flavor: standard.ngsiem
+  #- name: victim
+  #  base_box:
+  #    image: ubuntu-noble-x86_64
+  #    mgmt_user: ubuntu
+  #  flavor: standard.small
 routers: 
   - name: router
     base_box:
@@ -37,12 +37,12 @@ net_mappings:
   - host: docker-server
     network: testnet
     ip: 10.0.16.60
-  - host: victim
-    network: testnet
-    ip: 10.0.16.100
-  - host: ng-siem
-    network: testnet
-    ip: 10.0.16.70
+  #- host: victim
+  #  network: testnet
+  #  ip: 10.0.16.100
+  #- host: ng-siem
+  #  network: testnet
+  #  ip: 10.0.16.70
 router_mappings: 
   - router: router
     network: testnet
