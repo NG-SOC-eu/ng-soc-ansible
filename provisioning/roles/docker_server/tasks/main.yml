@@ -76,12 +76,12 @@
     opts: "guest,vers=3.0"
     state: mounted
 
-- name: Copy RITA zip from SMB to destination
-  ansible.builtin.copy:
-    src: "/mnt/smb_shared/rita-docker.zip"
-    dest: "/opt/rita-docker.zip"
-    remote_src: true
-    mode: "0644"
+#- name: Copy RITA zip from SMB to destination
+#  ansible.builtin.copy:
+#    src: "/mnt/smb_shared/rita-docker.zip"
+#    dest: "/opt/rita-docker.zip"
+#    remote_src: true
+#    mode: "0644"
 
 - name: Copy DFIR-IRIS zip from SMB to destination
   copy:
@@ -109,19 +109,19 @@
     remote_src: true
     mode: "0644"
 
-- name: Unarchive RITA Docker bundle
-  ansible.builtin.unarchive:
-    src: "/opt/rita-docker.zip"
-    dest: "/opt/"
-    remote_src: true
-    extra_opts: ["-o"]
-
-- name: Unzip rita frontend dist.zip
-  ansible.builtin.unarchive:
-    src: "/opt/rita-docker/frontend-container/rita-frontend/dist.zip"
-    dest: "/opt/rita-docker/frontend-container/rita-frontend"
-    remote_src: true
-    extra_opts: ["-o"]
+#- name: Unarchive RITA Docker bundle
+#  ansible.builtin.unarchive:
+#    src: "/opt/rita-docker.zip"
+#    dest: "/opt/"
+#    remote_src: true
+#    extra_opts: ["-o"]
+#
+#- name: Unzip rita frontend dist.zip
+#  ansible.builtin.unarchive:
+#    src: "/opt/rita-docker/frontend-container/rita-frontend/dist.zip"
+3    dest: "/opt/rita-docker/frontend-container/rita-frontend"
+#    remote_src: true
+#    extra_opts: ["-o"]
 
 - name: Unzip DFIR-IRIS Docker
   unarchive:
@@ -187,32 +187,32 @@
 #    build: always
   register: misp_output
 
-- name: Deploy Portainer
-  community.docker.docker_container:
-    name: portainer
-    image: portainer/portainer-ce:latest
-    state: started
-    restart_policy: always
-    ports: 
-      - "9443:9443"
-    volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock"
-      - "portainer_data:/data"
-  register: portainer_output
-
-- name: Build and run RITA backend services
-  community.docker.docker_compose_v2:
-    project_src: "/opt/rita-docker/backend-container"
-    state: present
-    build: always
-  register: backend_compose_output
-
-- name: Build and run RITA frontend services
-  community.docker.docker_compose_v2:
-    project_src: "/opt/rita-docker/frontend-container"
-    state: present
-    build: always
-  register: frontend_compose_output
+#- name: Deploy Portainer
+#  community.docker.docker_container:
+#    name: portainer
+#    image: portainer/portainer-ce:latest
+#    state: started
+#    restart_policy: always
+#    ports: 
+#      - "9443:9443"
+#    volumes:
+#      - "/var/run/docker.sock:/var/run/docker.sock"
+#      - "portainer_data:/data"
+#  register: portainer_output
+#
+#- name: Build and run RITA backend services
+#  community.docker.docker_compose_v2:
+#    project_src: "/opt/rita-docker/backend-container"
+#    state: present
+#    build: always
+#  register: backend_compose_output
+#
+#- name: Build and run RITA frontend services
+#  community.docker.docker_compose_v2:
+#    project_src: "/opt/rita-docker/frontend-container"
+#    state: present
+#    build: always
+#  register: frontend_compose_output
     
 - name: Build and run RITA tools services
   community.docker.docker_compose_v2:
