@@ -776,154 +776,154 @@
       - "/opt/anythingllm:/app/server/storage"
 
 ######################## SACTI (Secure Aggregated CTI) ########################
-
-- name: Install SACTI build dependencies
-  ansible.builtin.apt:
-    name:
-      - cmake
-      - ninja-build
-      - libssl-dev
-      - python3-venv
-    state: present
-    update_cache: yes
-
-- name: Clone liboqs (Open Quantum Safe C library)
-  git:
-    repo: "https://github.com/open-quantum-safe/liboqs.git"
-    dest: /opt/liboqs
-    version: main
-    force: yes
-
-- name: Build and install liboqs shared library
-  ansible.builtin.shell: |
-    cmake -S /opt/liboqs -B /opt/liboqs/build \
-      -DBUILD_SHARED_LIBS=ON \
-      -DCMAKE_INSTALL_PREFIX=/usr/local \
-      -GNinja
-    cmake --build /opt/liboqs/build -- -j$(nproc)
-    cmake --install /opt/liboqs/build
-    ldconfig
-    touch /opt/liboqs/.build_complete
-  args:
-    creates: /opt/liboqs/.build_complete
-
-- name: Clone SACTI repository
-  git:
-    repo: "https://github.com/COSSAS/SACTI.git"
-    dest: /opt/sacti
-    force: yes
-
-- name: Create SACTI Python virtual environment
-  command:
-    cmd: python3 -m venv /opt/sacti/venv
-    creates: /opt/sacti/venv/bin/python3
-
-- name: Install SACTI Python dependencies
-  ansible.builtin.pip:
-    requirements: /opt/sacti/requirements.txt
-    virtualenv: /opt/sacti/venv
-    virtualenv_python: python3
-  environment:
-    LD_LIBRARY_PATH: /usr/local/lib
-
-- name: Patch SACTI config.py — set MISP_KEY
-  ansible.builtin.lineinfile:
-    path: /opt/sacti/sacti/config.py
-    regexp: '^MISP_KEY\s*='
-    line: "MISP_KEY = '{{ misp_api_key }}'"
-    state: present
-
-- name: Patch SACTI config.py — set MISP_URL
-  ansible.builtin.lineinfile:
-    path: /opt/sacti/sacti/config.py
-    regexp: '^MISP_URL\s*='
-    line: "MISP_URL = 'https://{{ docker_server_internal_ip }}:8443'"
-    state: present
-
-- name: Patch SACTI config.py — update Sig_Alg for liboqs 0.10+ (Dilithium2 → ML-DSA-44)
-  ansible.builtin.lineinfile:
-    path: /opt/sacti/sacti/config.py
-    regexp: '^Sig_Alg\s*='
-    line: "Sig_Alg = 'ML-DSA-44'"
-    state: present
-
-- name: Patch SACTI config.py — update Kem_Alg for liboqs 0.10+ (Kyber512 → ML-KEM-512)
-  ansible.builtin.lineinfile:
-    path: /opt/sacti/sacti/config.py
-    regexp: '^Kem_Alg\s*='
-    line: "Kem_Alg = 'ML-KEM-512'"
-    state: present
-
-- name: Run SACTI PKI setup (post-quantum key generation, one-time)
-  ansible.builtin.shell: |
-    /opt/sacti/venv/bin/python3 sacti/pq_pki_utils.py && touch /opt/sacti/.pki_done
-  args:
-    chdir: /opt/sacti
-    creates: /opt/sacti/.pki_done
-  environment:
-    LD_LIBRARY_PATH: /usr/local/lib
-    PYTHONPATH: /opt/sacti
-
-- name: Create SACTI aggregator systemd service
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/sacti-aggregator.service
-    mode: '0644'
-    content: |
-      [Unit]
-      Description=SACTI Aggregator (secure CTI sharing)
-      After=network.target
-
-      [Service]
-      WorkingDirectory=/opt/sacti
-      Environment=LD_LIBRARY_PATH=/usr/local/lib
-      Environment=PYTHONPATH=/opt/sacti
-      ExecStart=/opt/sacti/venv/bin/python3 sacti/aggregator.py
-      Restart=on-failure
-      RestartSec=5
-
-      [Install]
-      WantedBy=multi-user.target
-
-- name: Create SACTI party systemd template service
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/sacti-party@.service
-    mode: '0644'
-    content: |
-      [Unit]
-      Description=SACTI Party %i
-      After=network.target sacti-aggregator.service
-
-      [Service]
-      WorkingDirectory=/opt/sacti
-      Environment=LD_LIBRARY_PATH=/usr/local/lib
-      Environment=PYTHONPATH=/opt/sacti
-      ExecStart=/opt/sacti/venv/bin/python3 sacti/party.py %i 801%i
-      Restart=on-failure
-      RestartSec=5
-
-      [Install]
-      WantedBy=multi-user.target
-
-- name: Reload systemd after creating SACTI services
-  ansible.builtin.systemd:
-    daemon_reload: yes
-
-- name: Enable and start SACTI aggregator
-  ansible.builtin.service:
-    name: sacti-aggregator
-    enabled: yes
-    state: started
-
-- name: Enable and start SACTI parties 1-3
-  ansible.builtin.service:
-    name: "sacti-party@{{ item }}"
-    enabled: yes
-    state: started
-  loop:
-    - 1
-    - 2
-    - 3
-
+#
+#- name: Install SACTI build dependencies
+#  ansible.builtin.apt:
+#    name:
+#      - cmake
+#      - ninja-build
+#      - libssl-dev
+#      - python3-venv
+#    state: present
+#    update_cache: yes
+#
+#- name: Clone liboqs (Open Quantum Safe C library)
+#  git:
+#    repo: "https://github.com/open-quantum-safe/liboqs.git"
+#    dest: /opt/liboqs
+#    version: main
+#    force: yes
+#
+#- name: Build and install liboqs shared library
+#  ansible.builtin.shell: |
+#    cmake -S /opt/liboqs -B /opt/liboqs/build \
+#      -DBUILD_SHARED_LIBS=ON \
+#      -DCMAKE_INSTALL_PREFIX=/usr/local \
+#      -GNinja
+#    cmake --build /opt/liboqs/build -- -j$(nproc)
+#    cmake --install /opt/liboqs/build
+#    ldconfig
+#    touch /opt/liboqs/.build_complete
+#  args:
+#    creates: /opt/liboqs/.build_complete
+#
+#- name: Clone SACTI repository
+#  git:
+#    repo: "https://github.com/COSSAS/SACTI.git"
+#    dest: /opt/sacti
+#    force: yes
+#
+#- name: Create SACTI Python virtual environment
+#  command:
+#    cmd: python3 -m venv /opt/sacti/venv
+#    creates: /opt/sacti/venv/bin/python3
+#
+#- name: Install SACTI Python dependencies
+#  ansible.builtin.pip:
+#    requirements: /opt/sacti/requirements.txt
+#    virtualenv: /opt/sacti/venv
+#    virtualenv_python: python3
+#  environment:
+#    LD_LIBRARY_PATH: /usr/local/lib
+#
+#- name: Patch SACTI config.py — set MISP_KEY
+#  ansible.builtin.lineinfile:
+#    path: /opt/sacti/sacti/config.py
+#    regexp: '^MISP_KEY\s*='
+#    line: "MISP_KEY = '{{ misp_api_key }}'"
+#    state: present
+#
+#- name: Patch SACTI config.py — set MISP_URL
+#  ansible.builtin.lineinfile:
+#    path: /opt/sacti/sacti/config.py
+#    regexp: '^MISP_URL\s*='
+#    line: "MISP_URL = 'https://{{ docker_server_internal_ip }}:8443'"
+#    state: present
+#
+#- name: Patch SACTI config.py — update Sig_Alg for liboqs 0.10+ (Dilithium2 → ML-DSA-44)
+#  ansible.builtin.lineinfile:
+#    path: /opt/sacti/sacti/config.py
+#    regexp: '^Sig_Alg\s*='
+#    line: "Sig_Alg = 'ML-DSA-44'"
+#    state: present
+#
+#- name: Patch SACTI config.py — update Kem_Alg for liboqs 0.10+ (Kyber512 → ML-KEM-512)
+#  ansible.builtin.lineinfile:
+#    path: /opt/sacti/sacti/config.py
+#    regexp: '^Kem_Alg\s*='
+#    line: "Kem_Alg = 'ML-KEM-512'"
+#    state: present
+#
+#- name: Run SACTI PKI setup (post-quantum key generation, one-time)
+#  ansible.builtin.shell: |
+#    /opt/sacti/venv/bin/python3 sacti/pq_pki_utils.py && touch /opt/sacti/.pki_done
+#  args:
+#    chdir: /opt/sacti
+#    creates: /opt/sacti/.pki_done
+#  environment:
+#    LD_LIBRARY_PATH: /usr/local/lib
+#    PYTHONPATH: /opt/sacti
+#
+#- name: Create SACTI aggregator systemd service
+#  ansible.builtin.copy:
+#    dest: /etc/systemd/system/sacti-aggregator.service
+#    mode: '0644'
+#    content: |
+#      [Unit]
+#      Description=SACTI Aggregator (secure CTI sharing)
+#      After=network.target
+#
+#      [Service]
+#      WorkingDirectory=/opt/sacti
+#      Environment=LD_LIBRARY_PATH=/usr/local/lib
+#      Environment=PYTHONPATH=/opt/sacti
+#      ExecStart=/opt/sacti/venv/bin/python3 sacti/aggregator.py
+#      Restart=on-failure
+#      RestartSec=5
+#
+#      [Install]
+#      WantedBy=multi-user.target
+#
+#- name: Create SACTI party systemd template service
+#  ansible.builtin.copy:
+#    dest: /etc/systemd/system/sacti-party@.service
+#    mode: '0644'
+#    content: |
+#      [Unit]
+#      Description=SACTI Party %i
+#      After=network.target sacti-aggregator.service
+#
+#      [Service]
+#      WorkingDirectory=/opt/sacti
+#      Environment=LD_LIBRARY_PATH=/usr/local/lib
+#      Environment=PYTHONPATH=/opt/sacti
+#      ExecStart=/opt/sacti/venv/bin/python3 sacti/party.py %i 801%i
+#      Restart=on-failure
+#      RestartSec=5
+#
+#      [Install]
+#      WantedBy=multi-user.target
+#
+#- name: Reload systemd after creating SACTI services
+#  ansible.builtin.systemd:
+#    daemon_reload: yes
+#
+#- name: Enable and start SACTI aggregator
+#  ansible.builtin.service:
+#    name: sacti-aggregator
+#    enabled: yes
+#    state: started
+#
+#- name: Enable and start SACTI parties 1-3
+#  ansible.builtin.service:
+#    name: "sacti-party@{{ item }}"
+#    enabled: yes
+#    state: started
+#  loop:
+#    - 1
+#    - 2
+#    - 3
+#
 # ── Unmount ───────────────────────────────────────────────────────────────────
 
 - name: Unmount SMB share
