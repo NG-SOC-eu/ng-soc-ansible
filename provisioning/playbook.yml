@@ -23,11 +23,11 @@
 #  roles:
 #    - victim
 
-- name: Configure to all systems (logging, hosts, etc)
-  hosts: all
-  become: true
-  roles:
-    - all
+#- name: Configure to all systems (logging, hosts, etc)
+#  hosts: all
+#  become: true
+#  roles:
+#    - all
 
 - name: Changing syslog-ng on man
   hosts: man
