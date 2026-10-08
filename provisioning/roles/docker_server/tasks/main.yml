@@ -160,16 +160,32 @@
 - name: Change env http port for MISP
   lineinfile:
     path: /opt/misp-docker/.env
-    regexp: '^#?\s*CORE_HTTP_PORT='
+    #regexp: '^#?\s*CORE_HTTP_PORT='
+    regexp: '^#?\s*NGINX_HTTP_PORT='
     line: CORE_HTTP_PORT=8082
     state: present
 
 - name: Change env https port for MISP
   lineinfile:
     path: /opt/misp-docker/.env
-    regexp: '^#?\s*CORE_HTTPS_PORT='
+    #regexp: '^#?\s*CORE_HTTPS_PORT='
+    regexp: '^#?\s*NGINX_HTTPS_PORT='
     line: CORE_HTTPS_PORT=8443
     state: present
+
+#- name: Change env http port for MISP (legacy CORE_HTTP_PORT, kept for core internals)
+#  lineinfile:
+#    path: /opt/misp-docker/.env
+#    regexp: '^#?\s*CORE_HTTP_PORT='
+#    line: CORE_HTTP_PORT=8082
+#    state: present
+#
+#- name: Change env https port for MISP (legacy CORE_HTTPS_PORT, kept for core internals)
+#  lineinfile:
+#    path: /opt/misp-docker/.env
+#    regexp: '^#?\s*CORE_HTTPS_PORT='
+#    line: CORE_HTTPS_PORT=8443
+#    state: present
 
 - name: Change BASE_URL in env for MISP
   lineinfile:
@@ -180,12 +196,47 @@
     insertafter: EOF
     backup: yes
 
-- name: Deployment of MISP Docker
+- name: Create MISP nginx ssl directory
+  ansible.builtin.file:
+    path: /opt/misp-docker/ssl
+    state: directory
+    mode: '0755'
+
+- name: Generate self-signed TLS cert for misp-nginx (cert.pem + key.pem)
+  ansible.builtin.shell: |
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+      -keyout /opt/misp-docker/ssl/key.pem \
+      -out    /opt/misp-docker/ssl/cert.pem \
+      -subj '/C=XX/ST=CyberRange/L=Lab/O=MISP/CN={{ docker_server_internal_ip }}'
+    chmod 644 /opt/misp-docker/ssl/cert.pem /opt/misp-docker/ssl/key.pem
+  args:
+    creates: /opt/misp-docker/ssl/cert.pem
+
+- name: Deployment of MISP Docker (first pass — misp-core may still be initialising)
   community.docker.docker_compose_v2:
     project_src: "/opt/misp-docker"
     state: present
 #    build: always
   register: misp_output
+  failed_when: false
+
+- name: Wait for misp-core container to become healthy (first boot is slow)
+  community.docker.docker_container_info:
+    name: misp-docker-misp-core-1
+  register: misp_core_info
+  until: >
+    misp_core_info.container is defined and
+    misp_core_info.container.State.Health.Status == "healthy"
+  retries: 60
+  delay: 15
+
+- name: Deployment of MISP Docker (second pass — misp-core healthy, start nginx)
+  community.docker.docker_compose_v2:
+    project_src: "/opt/misp-docker"
+    state: present
+#    build: always
+  register: misp_output
+  
 
 #- name: Deploy Portainer
 #  community.docker.docker_container:
