@@ -508,16 +508,46 @@
     password: "msfpassword" # Set your required password here
     state: present
 
+# msfdb init saved a random password in database.yml; the task above changed it, so update the file to match.
+- name: Point Metasploit database.yml at the msf password set above
+  ansible.builtin.shell: |
+    for f in /usr/share/metasploit-framework/config/database.yml /root/.msf4/database.yml; do
+      [ -f "$f" ] && sed -i -E 's/^([[:space:]]*password:).*/\1 msfpassword/' "$f"
+    done
+    true
+  become: yes
+
 - name: Run Metasploit DB status check (forces migration if needed)
   command: msfconsole -q -x "db_status; exit"
   register: msf_migrate
   changed_when: "'connected to' in msf_migrate.stdout"
 
-- name: Start msfrpcd for Metasploit RPC
-#  command: msfrpcd -P "msfpassword" -n -a 127.0.0.1 -p 55553
-  shell: "msfrpcd -P msfpassword -n -a 127.0.0.1 -p 55553 -S -f &"
-  async: 10
-  poll: 0
+# A background "&" in a task is killed when the task ends; a service keeps RPC on 55553 up, also after reboot.
+- name: Create msfrpcd systemd service (Metasploit RPC on 127.0.0.1:55553)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/msfrpcd.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Metasploit RPC daemon (127.0.0.1:55553)
+      After=network.target postgresql.service
+
+      [Service]
+      ExecStart=/usr/bin/msfrpcd -P msfpassword -n -a 127.0.0.1 -p 55553 -S -f
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+  become: yes
+
+- name: Enable and start msfrpcd
+  ansible.builtin.systemd:
+    name: msfrpcd
+    enabled: yes
+    state: restarted
+    daemon_reload: yes
+  become: yes
 
 
 ##################### Install Docker Compose #########################################
