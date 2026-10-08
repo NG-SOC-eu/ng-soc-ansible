@@ -536,6 +536,8 @@
 
       [Service]
       Environment=HOME=/root
+      # from / bootsnap scans the whole disk and dies on the /usr/lib/llvm-16 symlink loop (ELOOP)
+      WorkingDirectory=/usr/share/metasploit-framework
       ExecStart=/usr/bin/msfrpcd -P msfpassword -n -a 127.0.0.1 -p 55553 -S -f
       Restart=on-failure
       RestartSec=5
