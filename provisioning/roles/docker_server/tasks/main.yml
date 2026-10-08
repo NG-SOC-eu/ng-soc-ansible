@@ -85,7 +85,6 @@
 
 - name: Copy DFIR-IRIS zip from SMB to destination
   copy:
-    #src: "/mnt/smb_shared/dfir-iris-custom-old.zip"
     src: "/mnt/smb_shared/dfir-iris-custom.zip"
     dest: "/opt/dfir-iris-custom.zip"
     remote_src: true
@@ -158,35 +157,34 @@
     dest: /opt/misp-docker/.env
     remote_src: yes
 
-- name: Change env http port for MISP
+# Current misp-docker publishes ports from NGINX_HTTP(S)_PORT (CORE_* kept for core internals).
+- name: Change published HTTP port for MISP (NGINX_HTTP_PORT)
   lineinfile:
     path: /opt/misp-docker/.env
-    #regexp: '^#?\s*CORE_HTTP_PORT='
     regexp: '^#?\s*NGINX_HTTP_PORT='
+    line: NGINX_HTTP_PORT=8082
+    state: present
+
+- name: Change published HTTPS port for MISP (NGINX_HTTPS_PORT)
+  lineinfile:
+    path: /opt/misp-docker/.env
+    regexp: '^#?\s*NGINX_HTTPS_PORT='
+    line: NGINX_HTTPS_PORT=8443
+    state: present
+
+- name: Change env http port for MISP (legacy CORE_HTTP_PORT, kept for core internals)
+  lineinfile:
+    path: /opt/misp-docker/.env
+    regexp: '^#?\s*CORE_HTTP_PORT='
     line: CORE_HTTP_PORT=8082
     state: present
 
-- name: Change env https port for MISP
+- name: Change env https port for MISP (legacy CORE_HTTPS_PORT, kept for core internals)
   lineinfile:
     path: /opt/misp-docker/.env
-    #regexp: '^#?\s*CORE_HTTPS_PORT='
-    regexp: '^#?\s*NGINX_HTTPS_PORT='
+    regexp: '^#?\s*CORE_HTTPS_PORT='
     line: CORE_HTTPS_PORT=8443
     state: present
-
-#- name: Change env http port for MISP (legacy CORE_HTTP_PORT, kept for core internals)
-#  lineinfile:
-#    path: /opt/misp-docker/.env
-#    regexp: '^#?\s*CORE_HTTP_PORT='
-#    line: CORE_HTTP_PORT=8082
-#    state: present
-#
-#- name: Change env https port for MISP (legacy CORE_HTTPS_PORT, kept for core internals)
-#  lineinfile:
-#    path: /opt/misp-docker/.env
-#    regexp: '^#?\s*CORE_HTTPS_PORT='
-#    line: CORE_HTTPS_PORT=8443
-#    state: present
 
 - name: Change BASE_URL in env for MISP
   lineinfile:
@@ -197,6 +195,7 @@
     insertafter: EOF
     backup: yes
 
+# misp-nginx crash-loops without ./ssl/cert.pem + key.pem (read-only mount) — pre-create them.
 - name: Create MISP nginx ssl directory
   ansible.builtin.file:
     path: /opt/misp-docker/ssl
@@ -213,6 +212,7 @@
   args:
     creates: /opt/misp-docker/ssl/cert.pem
 
+# First boot is slow and nginx waits for a healthy misp-core: up, wait healthy, up again.
 - name: Deployment of MISP Docker (first pass — misp-core may still be initialising)
   community.docker.docker_compose_v2:
     project_src: "/opt/misp-docker"
@@ -237,7 +237,6 @@
     state: present
 #    build: always
   register: misp_output
-  
 
 #- name: Deploy Portainer
 #  community.docker.docker_container:
@@ -387,9 +386,7 @@
 
     changed = False
 
-    # Fix port mapping: dev zip maps nginx "8080:80", but nginx listens on
-    # ${INTERFACE_HTTPS_PORT}=443 ssl and 8080 collides with SOARCA. Remap host
-    # 8083 → container 443 so IRIS serves HTTPS on 8083 with no clash.
+    # nginx listens on 443 ssl; old zip maps "8083:80", new zip "8080:80" -> host 8083:443
     for _src in ('"8083:80"', '"8080:80"'):
         if _src in content:
             content = content.replace(_src, '"8083:443"', 1)
@@ -437,6 +434,24 @@
   until: iris_app_info.container.State.Health.Status == "healthy"
   retries: 36
   delay: 5
+
+# DB dump pre-seeds the admin, so IRIS_ADM_PASSWORD is ignored — set a known password.
+- name: Hash the DFIR-IRIS admin password with the app's own bcrypt
+  community.docker.docker_container_exec:
+    container: iris_app
+    command: python3 -c "import bcrypt; print(bcrypt.hashpw(b'{{ iris_admin_password | default('IrisAdmin123') }}', bcrypt.gensalt(12)).decode())"
+  register: iris_pw_hash
+  failed_when: false
+
+- name: Set DFIR-IRIS admin password (administrator / IrisAdmin123)
+  community.docker.docker_container_exec:
+    container: iris_db
+    command: >-
+      psql -U postgres -d iris_db -c
+      "UPDATE \"user\" SET password = '{{ iris_pw_hash.stdout | trim }}' WHERE \"user\" = 'administrator';"
+  register: iris_pw_reset
+  changed_when: "'UPDATE 1' in iris_pw_reset.stdout"
+  when: (iris_pw_hash.stdout | default('') | trim) is match('^[$]2[aby][$]')
 
 # ── Certs are volume-mounted from nginx-certs/ — nginx starts with them ──────
 # ── Restart to ensure clean state after compose up ───────────────────────────
@@ -832,153 +847,156 @@
       - "/opt/anythingllm:/app/server/storage"
 
 ######################## SACTI (Secure Aggregated CTI) ########################
+
+# ── SACTI DISABLED ─────────────────────────────────────────────────────────
+# The entire SACTI section below is commented out intentionally.
 #
-#- name: Install SACTI build dependencies
-#  ansible.builtin.apt:
-#    name:
-#      - cmake
-#      - ninja-build
-#      - libssl-dev
-#      - python3-venv
-#    state: present
-#    update_cache: yes
+# - name: Install SACTI build dependencies
+#   ansible.builtin.apt:
+#     name:
+#       - cmake
+#       - ninja-build
+#       - libssl-dev
+#       - python3-venv
+#     state: present
+#     update_cache: yes
 #
-#- name: Clone liboqs (Open Quantum Safe C library)
-#  git:
-#    repo: "https://github.com/open-quantum-safe/liboqs.git"
-#    dest: /opt/liboqs
-#    version: main
-#    force: yes
+# - name: Clone liboqs (Open Quantum Safe C library)
+#   git:
+#     repo: "https://github.com/open-quantum-safe/liboqs.git"
+#     dest: /opt/liboqs
+#     version: main
+#     force: yes
 #
-#- name: Build and install liboqs shared library
-#  ansible.builtin.shell: |
-#    cmake -S /opt/liboqs -B /opt/liboqs/build \
-#      -DBUILD_SHARED_LIBS=ON \
-#      -DCMAKE_INSTALL_PREFIX=/usr/local \
-#      -GNinja
-#    cmake --build /opt/liboqs/build -- -j$(nproc)
-#    cmake --install /opt/liboqs/build
-#    ldconfig
-#    touch /opt/liboqs/.build_complete
-#  args:
-#    creates: /opt/liboqs/.build_complete
+# - name: Build and install liboqs shared library
+#   ansible.builtin.shell: |
+#     cmake -S /opt/liboqs -B /opt/liboqs/build \
+#       -DBUILD_SHARED_LIBS=ON \
+#       -DCMAKE_INSTALL_PREFIX=/usr/local \
+#       -GNinja
+#     cmake --build /opt/liboqs/build -- -j$(nproc)
+#     cmake --install /opt/liboqs/build
+#     ldconfig
+#     touch /opt/liboqs/.build_complete
+#   args:
+#     creates: /opt/liboqs/.build_complete
 #
-#- name: Clone SACTI repository
-#  git:
-#    repo: "https://github.com/COSSAS/SACTI.git"
-#    dest: /opt/sacti
-#    force: yes
+# - name: Clone SACTI repository
+#   git:
+#     repo: "https://github.com/COSSAS/SACTI.git"
+#     dest: /opt/sacti
+#     force: yes
 #
-#- name: Create SACTI Python virtual environment
-#  command:
-#    cmd: python3 -m venv /opt/sacti/venv
-#    creates: /opt/sacti/venv/bin/python3
+# - name: Create SACTI Python virtual environment
+#   command:
+#     cmd: python3 -m venv /opt/sacti/venv
+#     creates: /opt/sacti/venv/bin/python3
 #
-#- name: Install SACTI Python dependencies
-#  ansible.builtin.pip:
-#    requirements: /opt/sacti/requirements.txt
-#    virtualenv: /opt/sacti/venv
-#    virtualenv_python: python3
-#  environment:
-#    LD_LIBRARY_PATH: /usr/local/lib
+# - name: Install SACTI Python dependencies
+#   ansible.builtin.pip:
+#     requirements: /opt/sacti/requirements.txt
+#     virtualenv: /opt/sacti/venv
+#     virtualenv_python: python3
+#   environment:
+#     LD_LIBRARY_PATH: /usr/local/lib
 #
-#- name: Patch SACTI config.py — set MISP_KEY
-#  ansible.builtin.lineinfile:
-#    path: /opt/sacti/sacti/config.py
-#    regexp: '^MISP_KEY\s*='
-#    line: "MISP_KEY = '{{ misp_api_key }}'"
-#    state: present
+# - name: Patch SACTI config.py — set MISP_KEY
+#   ansible.builtin.lineinfile:
+#     path: /opt/sacti/sacti/config.py
+#     regexp: '^MISP_KEY\s*='
+#     line: "MISP_KEY = '{{ misp_api_key }}'"
+#     state: present
 #
-#- name: Patch SACTI config.py — set MISP_URL
-#  ansible.builtin.lineinfile:
-#    path: /opt/sacti/sacti/config.py
-#    regexp: '^MISP_URL\s*='
-#    line: "MISP_URL = 'https://{{ docker_server_internal_ip }}:8443'"
-#    state: present
+# - name: Patch SACTI config.py — set MISP_URL
+#   ansible.builtin.lineinfile:
+#     path: /opt/sacti/sacti/config.py
+#     regexp: '^MISP_URL\s*='
+#     line: "MISP_URL = 'https://{{ docker_server_internal_ip }}:8443'"
+#     state: present
 #
-#- name: Patch SACTI config.py — update Sig_Alg for liboqs 0.10+ (Dilithium2 → ML-DSA-44)
-#  ansible.builtin.lineinfile:
-#    path: /opt/sacti/sacti/config.py
-#    regexp: '^Sig_Alg\s*='
-#    line: "Sig_Alg = 'ML-DSA-44'"
-#    state: present
+# - name: Patch SACTI config.py — update Sig_Alg for liboqs 0.10+ (Dilithium2 → ML-DSA-44)
+#   ansible.builtin.lineinfile:
+#     path: /opt/sacti/sacti/config.py
+#     regexp: '^Sig_Alg\s*='
+#     line: "Sig_Alg = 'ML-DSA-44'"
+#     state: present
 #
-#- name: Patch SACTI config.py — update Kem_Alg for liboqs 0.10+ (Kyber512 → ML-KEM-512)
-#  ansible.builtin.lineinfile:
-#    path: /opt/sacti/sacti/config.py
-#    regexp: '^Kem_Alg\s*='
-#    line: "Kem_Alg = 'ML-KEM-512'"
-#    state: present
+# - name: Patch SACTI config.py — update Kem_Alg for liboqs 0.10+ (Kyber512 → ML-KEM-512)
+#   ansible.builtin.lineinfile:
+#     path: /opt/sacti/sacti/config.py
+#     regexp: '^Kem_Alg\s*='
+#     line: "Kem_Alg = 'ML-KEM-512'"
+#     state: present
 #
-#- name: Run SACTI PKI setup (post-quantum key generation, one-time)
-#  ansible.builtin.shell: |
-#    /opt/sacti/venv/bin/python3 sacti/pq_pki_utils.py && touch /opt/sacti/.pki_done
-#  args:
-#    chdir: /opt/sacti
-#    creates: /opt/sacti/.pki_done
-#  environment:
-#    LD_LIBRARY_PATH: /usr/local/lib
-#    PYTHONPATH: /opt/sacti
+# - name: Run SACTI PKI setup (post-quantum key generation, one-time)
+#   ansible.builtin.shell: |
+#     /opt/sacti/venv/bin/python3 sacti/pq_pki_utils.py && touch /opt/sacti/.pki_done
+#   args:
+#     chdir: /opt/sacti
+#     creates: /opt/sacti/.pki_done
+#   environment:
+#     LD_LIBRARY_PATH: /usr/local/lib
+#     PYTHONPATH: /opt/sacti
 #
-#- name: Create SACTI aggregator systemd service
-#  ansible.builtin.copy:
-#    dest: /etc/systemd/system/sacti-aggregator.service
-#    mode: '0644'
-#    content: |
-#      [Unit]
-#      Description=SACTI Aggregator (secure CTI sharing)
-#      After=network.target
+# - name: Create SACTI aggregator systemd service
+#   ansible.builtin.copy:
+#     dest: /etc/systemd/system/sacti-aggregator.service
+#     mode: '0644'
+#     content: |
+#       [Unit]
+#       Description=SACTI Aggregator (secure CTI sharing)
+#       After=network.target
 #
-#      [Service]
-#      WorkingDirectory=/opt/sacti
-#      Environment=LD_LIBRARY_PATH=/usr/local/lib
-#      Environment=PYTHONPATH=/opt/sacti
-#      ExecStart=/opt/sacti/venv/bin/python3 sacti/aggregator.py
-#      Restart=on-failure
-#      RestartSec=5
+#       [Service]
+#       WorkingDirectory=/opt/sacti
+#       Environment=LD_LIBRARY_PATH=/usr/local/lib
+#       Environment=PYTHONPATH=/opt/sacti
+#       ExecStart=/opt/sacti/venv/bin/python3 sacti/aggregator.py
+#       Restart=on-failure
+#       RestartSec=5
 #
-#      [Install]
-#      WantedBy=multi-user.target
+#       [Install]
+#       WantedBy=multi-user.target
 #
-#- name: Create SACTI party systemd template service
-#  ansible.builtin.copy:
-#    dest: /etc/systemd/system/sacti-party@.service
-#    mode: '0644'
-#    content: |
-#      [Unit]
-#      Description=SACTI Party %i
-#      After=network.target sacti-aggregator.service
+# - name: Create SACTI party systemd template service
+#   ansible.builtin.copy:
+#     dest: /etc/systemd/system/sacti-party@.service
+#     mode: '0644'
+#     content: |
+#       [Unit]
+#       Description=SACTI Party %i
+#       After=network.target sacti-aggregator.service
 #
-#      [Service]
-#      WorkingDirectory=/opt/sacti
-#      Environment=LD_LIBRARY_PATH=/usr/local/lib
-#      Environment=PYTHONPATH=/opt/sacti
-#      ExecStart=/opt/sacti/venv/bin/python3 sacti/party.py %i 801%i
-#      Restart=on-failure
-#      RestartSec=5
+#       [Service]
+#       WorkingDirectory=/opt/sacti
+#       Environment=LD_LIBRARY_PATH=/usr/local/lib
+#       Environment=PYTHONPATH=/opt/sacti
+#       ExecStart=/opt/sacti/venv/bin/python3 sacti/party.py %i 801%i
+#       Restart=on-failure
+#       RestartSec=5
 #
-#      [Install]
-#      WantedBy=multi-user.target
+#       [Install]
+#       WantedBy=multi-user.target
 #
-#- name: Reload systemd after creating SACTI services
-#  ansible.builtin.systemd:
-#    daemon_reload: yes
+# - name: Reload systemd after creating SACTI services
+#   ansible.builtin.systemd:
+#     daemon_reload: yes
 #
-#- name: Enable and start SACTI aggregator
-#  ansible.builtin.service:
-#    name: sacti-aggregator
-#    enabled: yes
-#    state: started
+# - name: Enable and start SACTI aggregator
+#   ansible.builtin.service:
+#     name: sacti-aggregator
+#     enabled: yes
+#     state: started
 #
-#- name: Enable and start SACTI parties 1-3
-#  ansible.builtin.service:
-#    name: "sacti-party@{{ item }}"
-#    enabled: yes
-#    state: started
-#  loop:
-#    - 1
-#    - 2
-#    - 3
+# - name: Enable and start SACTI parties 1-3
+#   ansible.builtin.service:
+#     name: "sacti-party@{{ item }}"
+#     enabled: yes
+#     state: started
+#   loop:
+#     - 1
+#     - 2
+#     - 3
 #
 # ── Unmount ───────────────────────────────────────────────────────────────────
 
