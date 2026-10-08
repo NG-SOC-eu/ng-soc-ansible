@@ -1,3 +1,4 @@
+---
 - name: Set password on User debian
   ansible.builtin.user:
     name: debian
@@ -494,7 +495,8 @@
   become: yes
     
 - name: Initialize Metasploit Database
-  command: msfdb init --non-interactive
+  # Kali's msfdb has no --non-interactive (it only prints usage) and never prompts
+  command: msfdb init
   become: yes
   register: msf_init
   # This makes sure the task is idempotent
@@ -533,6 +535,7 @@
       After=network.target postgresql.service
 
       [Service]
+      Environment=HOME=/root
       ExecStart=/usr/bin/msfrpcd -P msfpassword -n -a 127.0.0.1 -p 55553 -S -f
       Restart=on-failure
       RestartSec=5
