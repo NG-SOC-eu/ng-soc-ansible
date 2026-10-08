@@ -424,6 +424,10 @@
     state: present
     build: always
   register: dfir_iris_output
+  # pip downloads in the image build can time out on the range network; a retry resumes from the build cache.
+  until: dfir_iris_output is succeeded
+  retries: 4
+  delay: 30
 
 # ── Wait for iris_app healthy ─────────────────────────────────────────────────
 
@@ -649,7 +653,10 @@
 
 - name: Install misp-mcp Python package from GitHub
   ansible.builtin.pip:
-    name: "git+https://github.com/misp/misp-mcp.git"
+    # mcp 2.x renamed FastMCP; misp-mcp and the wrapper still use the 1.x API
+    name:
+      - "git+https://github.com/misp/misp-mcp.git"
+      - "mcp<2"
     executable: pip3
     extra_args: --break-system-packages --ignore-installed
 
