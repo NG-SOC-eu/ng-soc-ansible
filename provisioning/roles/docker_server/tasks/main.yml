@@ -390,9 +390,11 @@
     # Fix port mapping: dev zip maps nginx "8080:80", but nginx listens on
     # ${INTERFACE_HTTPS_PORT}=443 ssl and 8080 collides with SOARCA. Remap host
     # 8083 → container 443 so IRIS serves HTTPS on 8083 with no clash.
-    if '"8080:80"' in content:
-        content = content.replace('"8080:80"', '"8083:443"', 1)
-        changed = True
+    for _src in ('"8083:80"', '"8080:80"'):
+        if _src in content:
+            content = content.replace(_src, '"8083:443"', 1)
+            changed = True
+            break
 
     # Add cert volumes to nginx service (insert before depends_on block)
     if 'nginx-certs' not in content:
