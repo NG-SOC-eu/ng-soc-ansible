@@ -180,6 +180,26 @@
     insertafter: EOF
     backup: yes
 
+# misp-nginx mounts ./ssl at /etc/nginx/certs READ-ONLY and, when BASE_URL is
+# https, requires cert.pem + key.pem to exist or it crash-loops with
+# "BASE_URL starts with https://, but SSL certificate is NOT present". It cannot
+# self-generate into a read-only mount, so we pre-create a self-signed pair here.
+- name: Create MISP nginx ssl directory
+  ansible.builtin.file:
+    path: /opt/misp-docker/ssl
+    state: directory
+    mode: '0755'
+
+- name: Generate self-signed TLS cert for misp-nginx (cert.pem + key.pem)
+  ansible.builtin.shell: |
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+      -keyout /opt/misp-docker/ssl/key.pem \
+      -out    /opt/misp-docker/ssl/cert.pem \
+      -subj '/C=XX/ST=CyberRange/L=Lab/O=MISP/CN={{ docker_server_internal_ip }}'
+    chmod 644 /opt/misp-docker/ssl/cert.pem /opt/misp-docker/ssl/key.pem
+  args:
+    creates: /opt/misp-docker/ssl/cert.pem
+
 - name: Deployment of MISP Docker (first pass — misp-core may still be initialising)
   community.docker.docker_compose_v2:
     project_src: "/opt/misp-docker"
@@ -348,6 +368,24 @@
     - { key: POSTGRES_PASSWORD,       value: "IrisDbPass123" }
     - { key: POSTGRES_ADMIN_PASSWORD, value: "IrisAdmPass123" }
 
+# Make the DFIR-IRIS admin login AND its API key deterministic. The fork honours
+# these on FIRST boot (when the administrator user is created). Setting
+# IRIS_ADM_API_KEY means we know the key up-front, so the resolution logic below
+# just confirms it instead of scraping the DB. NOTE: only applied on a fresh DB —
+# if iris_db volume already exists you must `docker compose -p dfir-iris-custom
+# down -v` before re-running for these to take effect.
+- name: Set deterministic DFIR-IRIS administrator credentials + API key
+  ansible.builtin.lineinfile:
+    path: /opt/dfir-iris-custom/.env
+    regexp: '^#?\s*{{ item.key }}='
+    line: "{{ item.key }}={{ item.value }}"
+    state: present
+  loop:
+    - { key: IRIS_ADM_USERNAME, value: "administrator" }
+    - { key: IRIS_ADM_EMAIL,    value: "admin@localhost" }
+    - { key: IRIS_ADM_PASSWORD, value: "MySuperAdminPassword!" }
+    - { key: IRIS_ADM_API_KEY,  value: "B8BA5D730210B50F41C06941582D7965D57319D5685440587F98DFDC45A01594" }
+
 # Keep DFIR-IRIS on host port 8083 (original external port, no clash with MISP
 # 8443/8082). The base compose maps ${INTERFACE_HTTPS_PORT}:${INTERFACE_HTTPS_PORT}
 # and nginx listens on it, so this relocates it off the fork's default 443.
@@ -427,7 +465,7 @@
     url: "https://localhost:8083/api/v1/users/me"
     method: GET
     headers:
-      Authorization: "Bearer c-8vTC8nDC6iggE9f0jfVS1r6BEWUpAvHiMpT16bDJN1YqEIYPAI6ldxiwEMKx3w7n4cxTml4_X-RKol-_xUuQ"
+      Authorization: "Bearer B8BA5D730210B50F41C06941582D7965D57319D5685440587F98DFDC45A01594"
       Content-Type: "application/json"
     validate_certs: false
     status_code: [200, 401, 403]
@@ -463,8 +501,8 @@
 
 - name: Set iris_api_key — from hardcoded key (verified working)
   ansible.builtin.set_fact:
-    iris_api_key: "c-8vTC8nDC6iggE9f0jfVS1r6BEWUpAvHiMpT16bDJN1YqEIYPAI6ldxiwEMKx3w7n4cxTml4_X-RKol-_xUuQ"
-    cacheable: yes
+    iris_api_key: "B8BA5D730210B50F41C06941582D7965D57319D5685440587F98DFDC45A01594"
+    cacheable: ye
   when: iris_key_test.status | default(0) == 200
 
 - name: Set iris_api_key — from DB column api_key
