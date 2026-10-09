@@ -393,6 +393,11 @@
             changed = True
             break
 
+    # worker waits for "app:8000" but the service is iris_app -> worker never starts (no modules/webhooks)
+    if '"app:8000"' in content:
+        content = content.replace('"app:8000"', '"iris_app:8000"', 1)
+        changed = True
+
     # Add cert volumes to nginx service (insert before depends_on block)
     if 'nginx-certs' not in content:
         old = '    depends_on:\n      - iris_app\n    networks:\n      - iris_backend\n      - iris_frontend'
