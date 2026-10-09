@@ -649,6 +649,30 @@
   retries: 36
   delay: 5
 
+# modules ship disabled in the IRIS DB; enabling via the API also registers the "Get MISP insight" hook
+- name: Get DFIR-IRIS MISP module id
+  community.docker.docker_container_exec:
+    container: iris_db
+    command: >
+      psql -U postgres -d iris_db -t -A -c
+      "SELECT id FROM iris_module WHERE module_name = 'iris_misp_module';"
+  register: iris_misp_mod_id
+  changed_when: false
+
+- name: Enable the DFIR-IRIS MISP module (registers its hooks)
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8083/manage/modules/enable/{{ iris_misp_mod_id.stdout | trim }}"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ iris_api_key }}"
+    validate_certs: false
+    return_content: true
+    timeout: 30
+  register: iris_misp_enable
+  until: "'Module enabled' in (iris_misp_enable.content | default(''))"
+  retries: 10
+  delay: 6
+
 ######################## MISP MCP Server ######################################
 
 - name: Install python3-pip for MCP servers
