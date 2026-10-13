@@ -157,14 +157,29 @@
     dest: /opt/misp-docker/.env
     remote_src: yes
 
-- name: Change env http port for MISP
+# Current misp-docker publishes ports from NGINX_HTTP(S)_PORT (CORE_* kept for core internals).
+- name: Change published HTTP port for MISP (NGINX_HTTP_PORT)
+  lineinfile:
+    path: /opt/misp-docker/.env
+    regexp: '^#?\s*NGINX_HTTP_PORT='
+    line: NGINX_HTTP_PORT=8082
+    state: present
+
+- name: Change published HTTPS port for MISP (NGINX_HTTPS_PORT)
+  lineinfile:
+    path: /opt/misp-docker/.env
+    regexp: '^#?\s*NGINX_HTTPS_PORT='
+    line: NGINX_HTTPS_PORT=8443
+    state: present
+
+- name: Change env http port for MISP (legacy CORE_HTTP_PORT, kept for core internals)
   lineinfile:
     path: /opt/misp-docker/.env
     regexp: '^#?\s*CORE_HTTP_PORT='
     line: CORE_HTTP_PORT=8082
     state: present
 
-- name: Change env https port for MISP
+- name: Change env https port for MISP (legacy CORE_HTTPS_PORT, kept for core internals)
   lineinfile:
     path: /opt/misp-docker/.env
     regexp: '^#?\s*CORE_HTTPS_PORT='
@@ -180,7 +195,43 @@
     insertafter: EOF
     backup: yes
 
-- name: Deployment of MISP Docker
+# misp-nginx crash-loops without ./ssl/cert.pem + key.pem (read-only mount) — pre-create them.
+- name: Create MISP nginx ssl directory
+  ansible.builtin.file:
+    path: /opt/misp-docker/ssl
+    state: directory
+    mode: '0755'
+
+- name: Generate self-signed TLS cert for misp-nginx (cert.pem + key.pem)
+  ansible.builtin.shell: |
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+      -keyout /opt/misp-docker/ssl/key.pem \
+      -out    /opt/misp-docker/ssl/cert.pem \
+      -subj '/C=XX/ST=CyberRange/L=Lab/O=MISP/CN={{ docker_server_internal_ip }}'
+    chmod 644 /opt/misp-docker/ssl/cert.pem /opt/misp-docker/ssl/key.pem
+  args:
+    creates: /opt/misp-docker/ssl/cert.pem
+
+# First boot is slow and nginx waits for a healthy misp-core: up, wait healthy, up again.
+- name: Deployment of MISP Docker (first pass — misp-core may still be initialising)
+  community.docker.docker_compose_v2:
+    project_src: "/opt/misp-docker"
+    state: present
+#    build: always
+  register: misp_output
+  failed_when: false
+
+- name: Wait for misp-core container to become healthy (first boot is slow)
+  community.docker.docker_container_info:
+    name: misp-docker-misp-core-1
+  register: misp_core_info
+  until: >
+    misp_core_info.container is defined and
+    misp_core_info.container.State.Health.Status == "healthy"
+  retries: 60
+  delay: 15
+
+- name: Deployment of MISP Docker (second pass — misp-core healthy, start nginx)
   community.docker.docker_compose_v2:
     project_src: "/opt/misp-docker"
     state: present
@@ -275,10 +326,8 @@
 - name: Fix IRIS_UPSTREAM_SERVER to match actual container/service name
   ansible.builtin.lineinfile:
     path: /opt/dfir-iris-custom/.env
-    # New custom-ngsoc zip: nginx upstream is the compose SERVICE name 'app'
-    # (containers are iriswebapp_*, but services resolve by service name).
     regexp: '^IRIS_UPSTREAM_SERVER='
-    line: "IRIS_UPSTREAM_SERVER=app"
+    line: "IRIS_UPSTREAM_SERVER=iris_app"
     state: present
 
 - name: Verify IRIS_UPSTREAM_PORT is set to 8000
@@ -309,35 +358,68 @@
     # false = real runs through SOARCA, true = mocked demo output
     - { key: NGSOAR_DEMO,       value: "false" }
 
-# ── Required .env values for the custom-ngsoc zip ─────────────────────────────
-# The fork ships POSTGRES_PASSWORD / POSTGRES_ADMIN_PASSWORD as __MUST_BE_CHANGED__;
-# the DB container refuses to start until they are real values.
-- name: Set DFIR-IRIS database passwords (fork ships placeholder __MUST_BE_CHANGED__)
-  ansible.builtin.lineinfile:
-    path: /opt/dfir-iris-custom/.env
-    regexp: '^{{ item.key }}='
-    line: "{{ item.key }}={{ item.value }}"
-    state: present
-  loop:
-    - { key: POSTGRES_PASSWORD,       value: "IrisDbP@ss123" }
-    - { key: POSTGRES_ADMIN_PASSWORD, value: "IrisAdm1nP@ss123" }
+# ── Pre-generate TLS certs so nginx has them on first boot ───────────────────
 
-# Keep DFIR-IRIS on host port 8083 (original external port, no clash with MISP
-# 8443/8082). The base compose maps ${INTERFACE_HTTPS_PORT}:${INTERFACE_HTTPS_PORT}
-# and nginx listens on it, so this relocates it off the fork's default 443.
-- name: Set DFIR-IRIS HTTPS listening port to 8083
-  ansible.builtin.lineinfile:
-    path: /opt/dfir-iris-custom/.env
-    regexp: '^INTERFACE_HTTPS_PORT='
-    line: "INTERFACE_HTTPS_PORT=8083"
-    state: present
+- name: Create nginx-certs directory on host
+  ansible.builtin.file:
+    path: /opt/dfir-iris-custom/nginx-certs
+    state: directory
+    mode: '0755'
 
-# NOTE: the custom-ngsoc zip ships its own TLS certs under
-# certificates/web_certificates/ and the base compose already mounts them
-# (SERVER_NAME/CERT_FILENAME/KEY_FILENAME in .env), so the old self-signed
-# cert generation and the docker-compose.yml cert/port patch were removed here —
-# they targeted the vanilla layout (iris_app container, "8083:80" mapping) that
-# this zip no longer uses.
+- name: Generate self-signed TLS cert for iris_nginx
+  ansible.builtin.shell: |
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+      -keyout /opt/dfir-iris-custom/nginx-certs/iris_dev_key.pem \
+      -out /opt/dfir-iris-custom/nginx-certs/iris_dev_cert.pem \
+      -subj '/C=XX/ST=CyberRange/L=Lab/O=IRIS/CN=iris.app.dev'
+    chmod 644 /opt/dfir-iris-custom/nginx-certs/iris_dev_key.pem
+    chmod 644 /opt/dfir-iris-custom/nginx-certs/iris_dev_cert.pem
+  args:
+    creates: /opt/dfir-iris-custom/nginx-certs/iris_dev_cert.pem
+
+- name: Patch docker-compose.yml — mount certs into nginx and expose port 443
+  ansible.builtin.shell: |
+    python3 <<'PYEOF'
+    path = '/opt/dfir-iris-custom/docker-compose.yml'
+    with open(path) as f:
+        content = f.read()
+
+    changed = False
+
+    # nginx listens on 443 ssl; old zip maps "8083:80", new zip "8080:80" -> host 8083:443
+    for _src in ('"8083:80"', '"8080:80"'):
+        if _src in content:
+            content = content.replace(_src, '"8083:443"', 1)
+            changed = True
+            break
+
+    # worker waits for "app:8000" but the service is iris_app -> worker never starts (no modules/webhooks)
+    if '"app:8000"' in content:
+        content = content.replace('"app:8000"', '"iris_app:8000"', 1)
+        changed = True
+
+    # Add cert volumes to nginx service (insert before depends_on block)
+    if 'nginx-certs' not in content:
+        old = '    depends_on:\n      - iris_app\n    networks:\n      - iris_backend\n      - iris_frontend'
+        new = (
+            '    volumes:\n'
+            '      - ./nginx-certs/iris_dev_cert.pem:/www/certs/iris_dev_cert.pem:ro\n'
+            '      - ./nginx-certs/iris_dev_key.pem:/www/certs/iris_dev_key.pem:ro\n'
+            '    depends_on:\n      - iris_app\n    networks:\n      - iris_backend\n      - iris_frontend'
+        )
+        if old in content:
+            content = content.replace(old, new, 1)
+            changed = True
+
+    if changed:
+        with open(path, 'w') as f:
+            f.write(content)
+        print('patched')
+    else:
+        print('already_patched')
+    PYEOF
+  register: compose_patch
+  changed_when: "'patched' in compose_patch.stdout"
 
 # ── Build and run ─────────────────────────────────────────────────────────────
 
@@ -347,23 +429,45 @@
     state: present
     build: always
   register: dfir_iris_output
+  # pip downloads in the image build can time out on the range network; a retry resumes from the build cache.
+  until: dfir_iris_output is succeeded
+  retries: 4
+  delay: 30
 
 # ── Wait for iris_app healthy ─────────────────────────────────────────────────
 
 - name: Wait for iris_app container to become healthy
   community.docker.docker_container_info:
-    name: iriswebapp_app
+    name: iris_app
   register: iris_app_info
   until: iris_app_info.container.State.Health.Status == "healthy"
   retries: 36
   delay: 5
 
-# ── Certs ship in the zip (certificates/web_certificates/) and are mounted by
-#    the base compose — nginx starts with them. Restart for a clean state. ─────
+# DB dump pre-seeds the admin, so IRIS_ADM_PASSWORD is ignored — set a known password.
+- name: Hash the DFIR-IRIS admin password with the app's own bcrypt
+  community.docker.docker_container_exec:
+    container: iris_app
+    command: python3 -c "import bcrypt; print(bcrypt.hashpw(b'{{ iris_admin_password | default('IrisAdmin123') }}', bcrypt.gensalt(12)).decode())"
+  register: iris_pw_hash
+  failed_when: false
+
+- name: Set DFIR-IRIS admin password (administrator / IrisAdmin123)
+  community.docker.docker_container_exec:
+    container: iris_db
+    command: >-
+      psql -U postgres -d iris_db -c
+      "UPDATE \"user\" SET password = '{{ iris_pw_hash.stdout | trim }}' WHERE \"user\" = 'administrator';"
+  register: iris_pw_reset
+  changed_when: "'UPDATE 1' in iris_pw_reset.stdout"
+  when: (iris_pw_hash.stdout | default('') | trim) is match('^[$]2[aby][$]')
+
+# ── Certs are volume-mounted from nginx-certs/ — nginx starts with them ──────
+# ── Restart to ensure clean state after compose up ───────────────────────────
 
 - name: Restart iris_nginx
   ansible.builtin.command:
-    cmd: docker restart iriswebapp_nginx
+    cmd: docker restart iris_nginx
   changed_when: true
 
 - name: Wait for iris_nginx to stabilise
@@ -399,7 +503,7 @@
 
 - name: Extract DFIR-IRIS API key from DB (column api_key)
   community.docker.docker_container_exec:
-    container: iriswebapp_db
+    container: iris_db
     command: >
       psql -U postgres -d iris_db -t -A -c
       "SELECT api_key FROM \"user\" WHERE name = 'administrator' LIMIT 1;"
@@ -409,7 +513,7 @@
 
 - name: Extract DFIR-IRIS API key from DB (column auth_key fallback)
   community.docker.docker_container_exec:
-    container: iriswebapp_db
+    container: iris_db
     command: >
       psql -U postgres -d iris_db -t -A -c
       "SELECT auth_key FROM \"user\" WHERE name = 'administrator' LIMIT 1;"
@@ -472,13 +576,13 @@
 
       def psql_fetch(q):
           r = subprocess.run(
-              ['docker','exec','iriswebapp_db','psql','-U','postgres','-d','iris_db','-t','-A','-c', q],
+              ['docker','exec','iris_db','psql','-U','postgres','-d','iris_db','-t','-A','-c', q],
               capture_output=True, text=True)
           return r.stdout.strip()
 
       def psql_exec(q):
           r = subprocess.run(
-              ['docker','exec','iriswebapp_db','psql','-U','postgres','-d','iris_db','-c', q],
+              ['docker','exec','iris_db','psql','-U','postgres','-d','iris_db','-c', q],
               capture_output=True, text=True)
           return r.returncode, r.stdout.strip() or r.stderr.strip()
 
@@ -534,16 +638,40 @@
     msg: "{{ iris_module_config.stdout_lines }}"
 
 - name: Restart iris_app to reload module configurations
-  ansible.builtin.command: docker restart iriswebapp_app
+  ansible.builtin.command: docker restart iris_app
   changed_when: true
 
 - name: Wait for iris_app to be healthy after module config restart
   community.docker.docker_container_info:
-    name: iriswebapp_app
+    name: iris_app
   register: iris_app_info2
   until: iris_app_info2.container.State.Health.Status == "healthy"
   retries: 36
   delay: 5
+
+# modules ship disabled in the IRIS DB; enabling via the API also registers the "Get MISP insight" hook
+- name: Get DFIR-IRIS MISP module id
+  community.docker.docker_container_exec:
+    container: iris_db
+    command: >
+      psql -U postgres -d iris_db -t -A -c
+      "SELECT id FROM iris_module WHERE module_name = 'iris_misp_module';"
+  register: iris_misp_mod_id
+  changed_when: false
+
+- name: Enable the DFIR-IRIS MISP module (registers its hooks)
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8083/manage/modules/enable/{{ iris_misp_mod_id.stdout | trim }}"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ iris_api_key }}"
+    validate_certs: false
+    return_content: true
+    timeout: 30
+  register: iris_misp_enable
+  until: "'Module enabled' in (iris_misp_enable.content | default(''))"
+  retries: 10
+  delay: 6
 
 ######################## MISP MCP Server ######################################
 
@@ -554,7 +682,10 @@
 
 - name: Install misp-mcp Python package from GitHub
   ansible.builtin.pip:
-    name: "git+https://github.com/misp/misp-mcp.git"
+    # mcp 2.x renamed FastMCP; misp-mcp and the wrapper still use the 1.x API
+    name:
+      - "git+https://github.com/misp/misp-mcp.git"
+      - "mcp<2"
     executable: pip3
     extra_args: --break-system-packages --ignore-installed
 
@@ -902,7 +1033,7 @@
 #     - 1
 #     - 2
 #     - 3
-
+#
 # ── Unmount ───────────────────────────────────────────────────────────────────
 
 - name: Unmount SMB share
